@@ -87,6 +87,25 @@ def routes(ctx):
         return {'id':c.id,'enabled':c.enabled}
     @router.get('/admin/sync/status')
     def sync_status(db=Depends(ctx.session),user=Depends(ctx.require_permission('sync.view'))):
-        from .models import SyncBatch
-        return {'enabled':ctx.router is not None,'active':ctx.router.mode if ctx.router else ctx.engine.dialect.name,'batches':[dict(id=b.id,source=b.source,status=b.status,sequence=b.sequence,attempts=b.attempts,error_code=b.error_code,created_at=b.created_at,synced_at=b.synced_at) for b in db.scalars(select(SyncBatch).order_by(SyncBatch.sequence.desc()).limit(100))]}
+        if not ctx.router:
+            return {'enabled':False,'active':ctx.engine.dialect.name,'operations':[],'batches':[]}
+        from .models import DegradedOperation
+        operations=[dict(
+            id=o.id,
+            operation_type=o.operation_type,
+            aggregate_type=o.aggregate_type,
+            aggregate_id=o.aggregate_id,
+            status=o.sync_status,
+            sequence=o.sequence,
+            attempts=o.retry_count,
+            error_code=o.last_error,
+            result=o.result,
+            created_at=o.created_at,
+            synced_at=o.synced_at,
+        ) for o in db.scalars(select(DegradedOperation).order_by(
+            DegradedOperation.sequence.desc(),DegradedOperation.created_at.desc()
+        ).limit(100))]
+        # "batches" is retained temporarily for existing backoffice clients while
+        # the new operation-journal terminology rolls out.
+        return {'enabled':True,'active':ctx.router.mode,'operations':operations,'batches':operations}
     return router
