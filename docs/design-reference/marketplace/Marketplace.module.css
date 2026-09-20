@@ -1,0 +1,511 @@
+.marketplace {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 8px 32px 88px;
+  color: var(--ajo-text);
+  font-family: var(--ajo-font-body);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marketplace * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ---------- head ---------- */
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+.headText h1 {
+  font-family: var(--ajo-font-display);
+  font-weight: 600;
+  font-size: 40px;
+  line-height: 1.08;
+  margin: 0 0 10px;
+  letter-spacing: -0.01em;
+  color: var(--ajo-ink);
+}
+.headText p {
+  margin: 0;
+  color: var(--ajo-text-muted);
+  font-size: 15.5px;
+  max-width: 46ch;
+  line-height: 1.55;
+}
+.headMeta {
+  font-size: 13.5px;
+  color: var(--ajo-text-soft);
+  white-space: nowrap;
+  padding-bottom: 6px;
+}
+
+/* ---------- search + filters ---------- */
+.searchRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.searchField {
+  flex: 1;
+  min-width: 220px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--ajo-card);
+  border: 1px solid var(--ajo-line);
+  border-radius: var(--ajo-radius-pill);
+  padding: 13px 18px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.searchField:focus-within {
+  border-color: var(--ajo-ink-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ajo-ink-soft) 14%, transparent);
+}
+.searchField svg {
+  flex: none;
+  color: var(--ajo-text-soft);
+}
+.searchField input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  width: 100%;
+  font-family: inherit;
+  color: var(--ajo-text);
+}
+.searchField input::placeholder {
+  color: var(--ajo-text-soft);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  border-radius: var(--ajo-radius-pill);
+  font-size: 14.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+  font-family: inherit;
+}
+.btn:active {
+  transform: scale(0.97);
+}
+.btnGhost {
+  background: var(--ajo-card);
+  border-color: var(--ajo-line);
+  color: var(--ajo-text);
+  padding: 12px 18px;
+}
+.btnGhost:hover {
+  border-color: var(--ajo-ink-soft);
+}
+.btnGhostActive {
+  background: var(--ajo-ink);
+  border-color: var(--ajo-ink);
+  color: var(--ajo-cream);
+}
+.btnPrimary {
+  background: var(--ajo-ink);
+  color: var(--ajo-cream);
+  padding: 12px 20px;
+}
+.btnPrimary:hover {
+  background: var(--ajo-ink-soft);
+}
+.btnCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--ajo-terracotta);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* chip row */
+.chipRow {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 2px 18px;
+  scrollbar-width: none;
+}
+.chipRow::-webkit-scrollbar {
+  display: none;
+}
+.chip {
+  flex: none;
+  border: 1px solid var(--ajo-line);
+  background: var(--ajo-card);
+  color: var(--ajo-text-muted);
+  border-radius: var(--ajo-radius-pill);
+  padding: 8px 15px;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+.chip:hover {
+  border-color: var(--ajo-ink-soft);
+  color: var(--ajo-text);
+}
+.chipActive {
+  background: var(--ajo-ink);
+  border-color: var(--ajo-ink);
+  color: var(--ajo-cream);
+}
+
+/* advanced filter drawer */
+.drawer {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.28s ease;
+}
+.drawerOpen {
+  max-height: 280px;
+  margin-bottom: 18px;
+}
+.drawerInner {
+  background: var(--ajo-sage);
+  border: 1px solid var(--ajo-line-soft);
+  border-radius: 16px;
+  padding: 20px 22px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px 20px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ajo-text-muted);
+}
+.field select,
+.field input {
+  border: 1px solid var(--ajo-line);
+  background: var(--ajo-card);
+  border-radius: 10px;
+  padding: 9px 10px;
+  font-size: 14px;
+  color: var(--ajo-text);
+  font-family: inherit;
+}
+.drawerActions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 2px;
+}
+.linkBtn {
+  background: none;
+  border: none;
+  color: var(--ajo-text-muted);
+  font-size: 13.5px;
+  cursor: pointer;
+  padding: 8px 4px;
+  font-family: inherit;
+}
+.linkBtn:hover {
+  color: var(--ajo-text);
+  text-decoration: underline;
+}
+
+/* results meta row */
+.resultsMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.resultsCount {
+  font-size: 14px;
+  color: var(--ajo-text-muted);
+}
+.resultsCount b {
+  color: var(--ajo-text);
+  font-weight: 600;
+}
+.sortRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--ajo-text-muted);
+}
+.sortRow select {
+  border: 1px solid var(--ajo-line);
+  background: var(--ajo-card);
+  border-radius: var(--ajo-radius-pill);
+  padding: 8px 14px;
+  font-size: 13.5px;
+  color: var(--ajo-text);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* ---------- grid ---------- */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+@media (max-width: 920px) {
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 640px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  background: var(--ajo-card);
+  border: 1px solid var(--ajo-line);
+  border-radius: var(--ajo-radius-card);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: var(--ajo-shadow);
+  opacity: 0;
+  transform: translateY(10px);
+  animation: cardIn 0.5s ease forwards;
+}
+@keyframes cardIn {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.cardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ajo-terracotta-deep);
+  background: var(--ajo-terracotta-tint);
+  padding: 5px 10px;
+  border-radius: var(--ajo-radius-pill);
+  letter-spacing: 0.01em;
+}
+.favBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--ajo-text-soft);
+  padding: 2px;
+  display: flex;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+.favBtn:hover {
+  color: var(--ajo-terracotta);
+}
+.favBtnSaved {
+  color: var(--ajo-terracotta);
+}
+.favBtn svg {
+  width: 19px;
+  height: 19px;
+}
+
+.cardMid {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.ringWrap {
+  flex: none;
+  position: relative;
+  width: 64px;
+  height: 64px;
+}
+.ringCenter {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  font-size: 11px;
+  color: var(--ajo-text-soft);
+  font-weight: 600;
+  line-height: 1.1;
+}
+.ringCenter b {
+  font-size: 14px;
+  color: var(--ajo-text);
+  font-weight: 700;
+}
+
+.cardTitle {
+  font-family: var(--ajo-font-display);
+  font-weight: 600;
+  font-size: 18px;
+  color: var(--ajo-ink);
+  margin: 0 0 3px;
+  letter-spacing: -0.005em;
+}
+.cardSub {
+  font-size: 12.5px;
+  color: var(--ajo-text-soft);
+}
+
+.payoutRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.payoutAmount {
+  font-family: var(--ajo-font-display);
+  font-weight: 600;
+  font-size: 26px;
+  color: var(--ajo-ink);
+  letter-spacing: -0.01em;
+}
+.payoutLabel {
+  font-size: 12.5px;
+  color: var(--ajo-text-soft);
+}
+
+.cardStats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px 14px;
+  padding: 14px 0;
+  border-top: 1px solid var(--ajo-line-soft);
+  border-bottom: 1px solid var(--ajo-line-soft);
+  font-size: 12.5px;
+}
+.statLabel {
+  color: var(--ajo-text-soft);
+}
+.statValue {
+  color: var(--ajo-text);
+  font-weight: 600;
+  float: right;
+}
+
+.cardFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.trust {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ajo-text-muted);
+}
+.trust svg {
+  color: var(--ajo-ink-soft);
+  flex: none;
+}
+.cardCta {
+  padding: 10px 16px;
+  font-size: 13.5px;
+}
+
+.urgency {
+  font-size: 11.5px;
+  color: var(--ajo-terracotta-deep);
+  font-weight: 600;
+}
+
+/* skeletons */
+.skelCard {
+  background: var(--ajo-card);
+  border: 1px solid var(--ajo-line);
+  border-radius: var(--ajo-radius-card);
+  height: 250px;
+  position: relative;
+  overflow: hidden;
+}
+.skelCard::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--ajo-line) 60%, transparent),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: shimmer 1.3s infinite;
+}
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.empty {
+  text-align: center;
+  padding: 70px 20px;
+  color: var(--ajo-text-muted);
+  border: 1px dashed var(--ajo-line);
+  border-radius: 20px;
+}
+.empty h3 {
+  font-family: var(--ajo-font-display);
+  color: var(--ajo-ink);
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+.empty p {
+  margin: 0 0 18px;
+  font-size: 14px;
+}
+
+.disclaimer {
+  font-size: 12px;
+  color: var(--ajo-text-soft);
+  margin: 22px 2px 0;
+}
+
+@media (max-width: 640px) {
+  .marketplace {
+    padding: 8px 18px 72px;
+  }
+  .headText h1 {
+    font-size: 30px;
+  }
+  .drawerInner {
+    grid-template-columns: 1fr 1fr;
+  }
+}

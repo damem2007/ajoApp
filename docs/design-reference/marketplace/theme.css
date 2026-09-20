@@ -1,0 +1,66 @@
+/*
+  Ajo design tokens.
+  Import this once, e.g. at the top of app/globals.css:
+    @import "../components/marketplace/theme.css";
+  or copy these custom properties straight into your existing :root.
+  Fonts: add Fraunces + Inter via next/font (recommended) or a <link> to
+  Google Fonts, then point --ajo-font-display / --ajo-font-body at them.
+*/
+
+:root {
+  --ajo-cream: #f6f3ea;
+  --ajo-cream-2: #efeadb;
+  --ajo-ink: #15302a;
+  --ajo-ink-soft: #2c5347;
+  --ajo-terracotta: #c1793f;
+  --ajo-terracotta-deep: #a65f2c;
+  --ajo-terracotta-tint: #f1dcc4;
+  --ajo-sage: #e6e9de;
+  --ajo-card: #ffffff;
+  --ajo-line: #ddd7c6;
+  --ajo-line-soft: #e7e2d3;
+  --ajo-text: #1b2621;
+  --ajo-text-muted: #6a6e62;
+  --ajo-text-soft: #8b8d80;
+  --ajo-focus: #2c5347;
+  --ajo-shadow: 0 1px 2px rgba(21, 48, 42, 0.06);
+  --ajo-radius-card: 20px;
+  --ajo-radius-pill: 999px;
+
+  --ajo-font-display: "Fraunces", ui-serif, Georgia, serif;
+  --ajo-font-body: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ajo-cream: #131914;
+    --ajo-cream-2: #182018;
+    --ajo-ink: #edeae0;
+    --ajo-ink-soft: #c9cbbf;
+    --ajo-card: #1b221c;
+    --ajo-line: #2c332b;
+    --ajo-line-soft: #242b23;
+    --ajo-sage: #1b221c;
+    --ajo-text: #efede4;
+    --ajo-text-muted: #a7aba0;
+    --ajo-text-soft: #7c8076;
+    --ajo-terracotta-tint: #3a2a1b;
+    --ajo-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  }
+}
+
+:root[data-theme="dark"] {
+  --ajo-cream: #131914;
+  --ajo-cream-2: #182018;
+  --ajo-ink: #edeae0;
+  --ajo-ink-soft: #c9cbbf;
+  --ajo-card: #1b221c;
+  --ajo-line: #2c332b;
+  --ajo-line-soft: #242b23;
+  --ajo-sage: #1b221c;
+  --ajo-text: #efede4;
+  --ajo-text-muted: #a7aba0;
+  --ajo-text-soft: #7c8076;
+  --ajo-terracotta-tint: #3a2a1b;
+  --ajo-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
