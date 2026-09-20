@@ -70,7 +70,7 @@ def publish_pending(ctx, *, redis_client=None, limit: int = 100) -> dict[str, in
         )
         for event in events:
             try:
-                redis_client.rpush(QUEUE_NAME, event.id)
+                redis_client.rpush(queue_for(event.event_type), event.id)
                 event.status = "published"
                 event.published_at = now()
                 event.last_error = None
