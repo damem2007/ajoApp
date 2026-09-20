@@ -62,11 +62,11 @@ class RedisPublisher:
 
 
 def dispatch_pending(db, publish: Callable[[OutboxEvent], None], limit: int = 100) -> int:
-    """Publish pending rows at-least-once; consumers deduplicate by event ID."""
+    """Publish incomplete rows at-least-once; consumers deduplicate by event ID."""
     events = list(
         db.scalars(
             select(OutboxEvent)
-            .where(OutboxEvent.status.in_(['pending', 'failed']))
+            .where(OutboxEvent.status.in_(['pending', 'failed', 'published']))
             .order_by(OutboxEvent.created_at, OutboxEvent.id)
             .limit(limit)
         )
