@@ -1,0 +1,36 @@
+name: backend-test
+
+on:
+  push:
+    branches: [main, "architecture/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      AJO_PLATFORM_DATABASE_URL: sqlite:///./ci.db
+      AJO_PROVIDER_MODE: simulated
+      AJO_PAYMENTS_PROVIDER: sandbox
+      AJO_IDENTITY_PROVIDER: sandbox
+      AJO_NOTIFICATIONS_PROVIDER: sandbox
+      AJO_DATA_DIR: /tmp/ajo-data
+      AJO_DATABASE_RESILIENCE: "false"
+      FRONTEND_URL: http://localhost:9520
+      CORS_ALLOWED_ORIGINS: http://localhost:9520
+      AJO_API_HOST: 127.0.0.1
+      AJO_API_PORT: "9020"
+      AJO_WORKER_INTERVAL_SECONDS: "1"
+      AJO_REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m alembic upgrade head
+      - run: python -m pytest -q
+      - run: python scripts/export_openapi.py --output /tmp/openapi.json
+      - run: test -s /tmp/openapi.json
+      - run: cp .env.example .env && docker compose config >/dev/null
