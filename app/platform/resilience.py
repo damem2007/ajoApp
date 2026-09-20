@@ -204,9 +204,17 @@ class DatabaseRouter:
                 connection.execute(table.update().where(*clause).values(**decode(after)))
 
     def _refresh_snapshot_changes(self,changes):
+        # Incremental refresh is permitted only for a snapshot that was explicitly
+        # initialized/certified from PostgreSQL. Never turn a partial SQLite file
+        # into a certified fallback merely because a primary write succeeded.
+        with Session(self.secondary) as db:
+            control=db.get(SyncControl,'snapshot')
+            if not control or control.state!='ready':
+                return False
         with self.secondary.begin() as dst:
             self._apply_changes(dst,changes)
         self.control('ready','primary_refresh')
+        return True
 
     def _record_operation(self,db,changes):
         first=changes[0]
@@ -240,6 +248,15 @@ class DatabaseRouter:
                     .order_by(DegradedOperation.sequence,DegradedOperation.created_at,DegradedOperation.id)
                     .limit(limit)
                 ))
+            if not ids:
+                with Session(self.secondary) as db:
+                    blocking=db.scalar(select(func.count()).select_from(DegradedOperation).where(
+                        DegradedOperation.sync_status.in_(BLOCKING_STATUSES)
+                    )) or 0
+                if blocking:
+                    self.control('quarantined','conflicting_operations_require_review')
+                return results
+
             for event_id in ids:
                 with Session(self.secondary) as local:
                     operation=local.get(DegradedOperation,event_id)

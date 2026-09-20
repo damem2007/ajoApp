@@ -8,7 +8,7 @@ from app.database import make_engine
 from app.platform.models import (
     Account, Circle, Participant, Invitation, Contract, Signature, Due, Posting, PaymentEvent,
     TrustEvent, Notice, Complaint, Audit, DataRequest, IdentityCase, Document, Bank, SessionToken,
-    StaffMembership, OutboxEvent, WorkerReceipt
+    StaffMembership, StaffInvitation, Challenge, OutboxEvent, WorkerReceipt
 )
 from sqlalchemy.orm import Session
 
@@ -47,6 +47,11 @@ def cleanup_run(run_id):
             db.execute(delete(Contract).where(Contract.circle_id.in_(circles)))
             db.execute(delete(Circle).where(Circle.id.in_(circles)))
         if users:
+            # Remove only records owned by the explicitly tagged test accounts.
+            db.execute(delete(Challenge).where(Challenge.user_id.in_(users)))
+            db.execute(delete(StaffInvitation).where(
+                (StaffInvitation.created_by.in_(users)) | (StaffInvitation.accepted_by.in_(users))
+            ))
             db.execute(delete(SessionToken).where(SessionToken.user_id.in_(users)))
             db.execute(delete(StaffMembership).where(StaffMembership.user_id.in_(users)))
             db.execute(delete(IdentityCase).where(IdentityCase.user_id.in_(users)))
@@ -55,7 +60,18 @@ def cleanup_run(run_id):
             db.execute(delete(Notice).where(Notice.user_id.in_(users)))
             db.execute(delete(DataRequest).where(DataRequest.user_id.in_(users)))
             db.execute(delete(TrustEvent).where(TrustEvent.user_id.in_(users)))
-            db.execute(delete(Account).where(Account.id.in_(users),Account.role!='admin'))
+            db.execute(delete(Participant).where(Participant.user_id.in_(users)))
+            db.execute(delete(Invitation).where(Invitation.generator_id.in_(users)))
+            db.execute(delete(Complaint).where(
+                (Complaint.filer_id.in_(users)) | (Complaint.target_id.in_(users))
+            ))
+            db.execute(delete(Account).where(
+                Account.id.in_(users),
+                Account.role!='admin',
+                Account.is_test_account==True,
+                Account.source=='test_cli',
+                Account.test_run_id==run_id,
+            ))
         # Audit rows are non-FK evidence; only explicit test actors/resources are removed.
         if users or circles:
             db.execute(delete(Audit).where((Audit.actor_id.in_(users)) | (Audit.resource.in_(users+circles))))

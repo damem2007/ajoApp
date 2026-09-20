@@ -22,7 +22,7 @@ def test_registered_provider_contracts_are_database_independent(monkeypatch):
     with pytest.raises(ValueError): provider.link_bank(bank_token='real-bank-details')
     provider.link_bank(bank_token='sandbox-ok-configured-account')
     assert provider.execute(key='test',amount_minor=100,currency='CAD',kind='payout',bank_token='sandbox-ok-configured-account').reference=='sandbox:test'
-    assert provider.execute(key='test',amount_minor=100,currency='CAD',kind='contribution',bank_token='sandbox-fail-configured-account').status=='Failed'
+    assert provider.execute(key='test-fail',amount_minor=100,currency='CAD',kind='contribution',bank_token='sandbox-fail-configured-account').status=='Failed'
 
 
 def test_channels_configuration_and_notifications(client):

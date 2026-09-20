@@ -2,7 +2,7 @@ from datetime import date
 from sqlalchemy import create_engine, select, func
 from sqlalchemy.orm import Session
 
-from app.platform.models import Base, OutboxEvent, Due
+from app.platform.models import Base, OutboxEvent, WorkerReceipt, Due, Account
 from app.platform.outbox import emit, dispatch_pending
 from app.platform.scheduler import enqueue_due_scan
 
@@ -60,3 +60,47 @@ def test_scheduler_uses_hour_bucket_idempotency():
         assert enqueue_due_scan(db,date.today())==1
         assert enqueue_due_scan(db,date.today())==1
         assert db.scalar(select(func.count()).select_from(OutboxEvent))==1
+
+
+def test_domain_and_outbox_commit_are_atomic():
+    engine=create_engine('sqlite:///:memory:')
+    Base.metadata.create_all(engine)
+    try:
+        with Session(engine) as db,db.begin():
+            db.add(Account(id='atomic-user',email='atomic@example.test',phone='+15555550123',password='hash'))
+            emit(
+                db,
+                event_type='notification.dispatch',
+                aggregate_type='account',
+                aggregate_id='atomic-user',
+                idempotency_key='atomic:rollback',
+                payload={'notice_id':'missing'},
+            )
+            raise RuntimeError('force rollback')
+    except RuntimeError:
+        pass
+    with Session(engine) as db:
+        assert db.get(Account,'atomic-user') is None
+        assert db.scalar(select(func.count()).select_from(OutboxEvent))==0
+
+
+def test_worker_receipt_prevents_duplicate_handler_execution():
+    from app.platform.workers import process_event
+    class Context: pass
+    engine=create_engine('sqlite:///:memory:')
+    Base.metadata.create_all(engine)
+    with Session(engine) as db,db.begin():
+        event=emit(
+            db,
+            event_type='notification.dispatch',
+            aggregate_type='notice',
+            aggregate_id='missing-notice',
+            idempotency_key='worker:idempotency',
+            payload={'notice_id':'missing-notice'},
+        )
+        event_id=event.id
+    with Session(engine) as db,db.begin():
+        assert process_event(db,Context(),event_id,'notification')=='processed'
+    with Session(engine) as db,db.begin():
+        assert process_event(db,Context(),event_id,'notification')=='already_processed'
+        assert db.scalar(select(func.count()).select_from(WorkerReceipt))==1

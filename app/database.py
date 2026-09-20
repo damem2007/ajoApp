@@ -1,4 +1,4 @@
-"""Database selection. Change backend/.env AJO_DATABASE_MODE, then restart API/worker.
+"""Database selection. Change .env AJO_DATABASE_MODE, then restart API/worker.
 
 postgres uses DATABASE_URL; sqlite uses AJO_SQLITE_DATABASE_URL.
 AJO_PLATFORM_DATABASE_URL remains an explicit process override for tests/tools.

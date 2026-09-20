@@ -1,3 +1,4 @@
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
@@ -13,6 +14,8 @@ def test_provider_contracts_support_portable_operations():
     result=payment.initiate_transfer(TransferRequest('idem-1',100,'CAD','contribution','sandbox-ok-bank'))
     assert result.status=='Settled'
     assert payment.initiate_transfer(TransferRequest('idem-1',100,'CAD','contribution','sandbox-ok-bank'))==result
+    with pytest.raises(ValueError):
+        payment.initiate_transfer(TransferRequest('idem-1',200,'CAD','contribution','sandbox-ok-bank'))
     assert payment.get_transfer(reference=result.reference)==result
     assert SandboxIdentity().submit(key='k',identity={},document=b'x',selfie=b'y')['status']=='Pending'
     assert SandboxNotifications().send(key='k',channel='email',destination='a@b.c',title='t',body='b')=='SandboxDelivered'

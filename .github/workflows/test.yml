@@ -8,6 +8,24 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      APP_ENV: test
+      AJO_PLATFORM_DATABASE_URL: sqlite:///./ci.db
+      AJO_PROVIDER_MODE: simulated
+      AJO_PAYMENTS_PROVIDER: sandbox
+      AJO_IDENTITY_PROVIDER: sandbox
+      AJO_NOTIFICATIONS_PROVIDER: sandbox
+      AJO_DATA_DIR: /tmp/ajo-data
+      AJO_DATABASE_RESILIENCE: "false"
+      AJO_FRONTEND_ORIGIN: http://frontend.test
+      FRONTEND_URL: http://frontend.test
+      CORS_ALLOWED_ORIGINS: http://frontend.test
+      AJO_API_HOST: 127.0.0.1
+      AJO_API_PORT: "9020"
+      AJO_WORKER_INTERVAL_SECONDS: "1"
+      AJO_REDIS_URL: redis://localhost:6379/0
+      THROTTLE_LIMIT: "5"
+      THROTTLE_WINDOW: "300"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -16,12 +34,25 @@ jobs:
           cache: pip
       - name: Install
         run: python -m pip install -e '.[dev]'
+      - name: Apply migrations
+        run: python -m alembic upgrade head
       - name: Test
         run: python -m pytest -q
+      - name: Verify migration/model drift
+        run: python -m alembic check
       - name: Export OpenAPI
         run: python scripts/export_openapi.py --output /tmp/openapi.json
       - name: Validate OpenAPI contract
-        run: python -c "import json; d=json.load(open('/tmp/openapi.json')); assert 'CircleSetupResponse' in d['components']['schemas']"
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/openapi.json'))
+          schemas=d['components']['schemas']
+          assert 'CircleSetupResponse' in schemas
+          assert 'PlanPreview' in schemas
+          PY
+      - name: Validate Docker Compose
+        run: cp .env.example .env && docker compose config >/dev/null
       - uses: actions/upload-artifact@v4
         with:
           name: ajo-openapi

@@ -71,6 +71,16 @@ def worker_loop(ctx,worker,redis_url,*,once=False):
     consumer=RedisConsumer(redis_url)
     try:
         while True:
+            # Recovery cannot enter the normal routed session while PostgreSQL has
+            # returned but SQLite journal work is still pending. Reconcile the
+            # journal first, outside ctx.session(), then process queue/provider work.
+            if worker=='reconciliation' and ctx.router:
+                results=ctx.router.reconcile_pending()
+                if any(r['result'] in {'CONFLICT','INVALID','FAILED_PERMANENT'} for r in results):
+                    log.warning('reconciliation quarantined results=%s',results)
+                    if once: return
+                    time.sleep(5)
+                    continue
             event_id=consumer.next_event(worker,timeout=1 if once else 5)
             if not event_id:
                 if once:return

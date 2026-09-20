@@ -133,8 +133,20 @@ class CircleSetup(Input):
             raise ValueError('Default frequencies must be enabled')
         return self
 
-class CircleSetupResponse(CircleSetup):
+class CircleSetupResponse(Input):
+    """Required public contract emitted from resolved policy configuration."""
+    name_min_length: int
+    name_max_length: int
+    amount_max_minor: int
+    members_min: int
+    members_max: int
+    default_currency: str
     currencies: list[str]
+    contribution_frequencies: list[Frequency]
+    collection_frequencies: list[Frequency]
+    default_contribution_frequency: Frequency
+    default_collection_frequency: Frequency
+    allow_overflow: Literal[False]
 
 
 class PlanPreview(Input):

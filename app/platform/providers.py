@@ -44,6 +44,7 @@ class NotificationProvider(Protocol):
 class SandboxPayments:
     def __init__(self):
         self._results = {}
+        self._requests = {}
 
     def link_bank(self, *, bank_token):
         if not bank_token.startswith(('sandbox-ok-', 'sandbox-fail-', 'sandbox-pending-')):
@@ -51,8 +52,12 @@ class SandboxPayments:
         return {'masked': '•••• ' + bank_token[-4:], 'status': 'Verified'}
 
     def initiate_transfer(self, request: TransferRequest):
-        if request.key in self._results:
+        previous=self._requests.get(request.key)
+        if previous is not None:
+            if previous != request:
+                raise ValueError('Idempotency key already used for a different payment request')
             return self._results[request.key]
+        self._requests[request.key]=request
         if request.bank_token.startswith('sandbox-fail-'):
             result=PaymentResult('Failed','sandbox:'+request.key,'Sandbox insufficient-funds scenario')
         elif request.bank_token.startswith('sandbox-pending-'):
