@@ -15,7 +15,7 @@ from sqlalchemy.exc import OperationalError, DBAPIError
 from .models import Base, SyncBatch, SyncReceipt, SyncControl, now, uid, Policy
 from .security import canonical
 
-EXCLUDED = {'sync_batches','sync_receipts','sync_control'}
+EXCLUDED = {'sync_batches','sync_receipts','sync_control','outbox_events','worker_receipts'}
 log=logging.getLogger('ajo.sync')
 
 
