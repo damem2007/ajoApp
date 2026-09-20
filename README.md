@@ -1,7 +1,9 @@
 # FastAPI backend
 
-The API implementation remains in the Python `backend/app/platform/` package to preserve migration, worker and deployment imports. The root `app` symlink keeps existing scripts and imports compatible. Start from the repository root:
+Start from the repository root with `backend/.venv/bin/python -m app.serve`. The launcher reads its database, host, port and frontend origin from `backend/.env` through `backend/app/config.py`. Alembic and workers use the same database settings; migrations run explicitly with `backend/.venv/bin/alembic upgrade head`.
 
-    .venv/bin/uvicorn app.platform.application:app --host 127.0.0.1 --port 8000
+Python domain modules stay in `backend/app/platform`. The root `app` symlink retains stable imports for scripts/tests. FastAPI returns API data and domain documents. Public UI URLs redirect to the configured Next.js frontend. There are no backend HTML renderers or frontend static mounts.
 
-The independently built Next.js client lives in `frontend/` and proxies `/api/*`, `/health` and `/ready` to this service. Financial rules, access controls and CMS publication remain in FastAPI. The historical HTML routes are compatibility entry points during rollout; their assets are owned by the frontend.
+Run sandbox mode with an explicit separate database if required. Existing signed agreements and encrypted evidence need their original encryption key. Regression tests isolate databases before importing application modules.
+
+See [architecture](../docs/ARCHITECTURE.md) and [configuration reference](../docs/CONFIGURATION.md).

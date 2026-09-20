@@ -34,17 +34,17 @@ class KYCInput(Input):
 
 class CircleInput(Input):
     category: Literal['Travel','Education','Family','Community','Business'] = 'Community'
-    name: str = Field(min_length=3, max_length=80)
+    name: str = Field(min_length=1, max_length=200)
     description: str = Field(default='', max_length=2000)
     privacy: Literal['public','private'] = 'public'
     premium: bool = False
     identities_hidden: bool = True
     currency: str = Field(pattern=r'^[A-Z]{3}$', default='NGN')
-    target_minor: Optional[int] = Field(default=None, gt=0, le=100_000_000_000, strict=True)
-    contribution_minor: Optional[int] = Field(default=None, gt=0, le=100_000_000_000, strict=True)
-    minimum_members: int = Field(ge=2, le=50, default=3)
-    planned_members: int = Field(ge=2, le=50, default=3)
-    hard_cap: int = Field(ge=2, le=50, default=3)
+    target_minor: Optional[int] = Field(default=None, gt=0, le=9_000_000_000_000_000, strict=True)
+    contribution_minor: Optional[int] = Field(default=None, gt=0, le=9_000_000_000_000_000, strict=True)
+    minimum_members: int = Field(ge=2, le=500, default=3)
+    planned_members: int = Field(ge=2, le=500, default=3)
+    hard_cap: int = Field(ge=2, le=500, default=3)
     strict_minimum: bool = True
     allow_overflow: bool = False
     overflow_strategy: Optional[Literal['extend_rotation']] = None
@@ -65,7 +65,7 @@ class CircleInput(Input):
         if self.contribution_minor is not None:
             from .calendar import contribution_dates
             derived=self.contribution_minor*len(contribution_dates(self.model_dump(mode='json'),self.planned_members))
-            if derived>100_000_000_000:
+            if derived>9_000_000_000_000_000:
                 raise ValueError('The derived payout exceeds the supported amount')
             if self.target_minor is not None and self.target_minor!=derived:
                 raise ValueError('Payout is derived from the fixed contribution amount and cycle schedule')
@@ -87,7 +87,7 @@ class JoinInput(Input):
     code: Optional[str] = Field(default=None, max_length=200)
 
 class FinalizeInput(Input):
-    payout_order: list[str] = Field(default_factory=list, max_length=50)
+    payout_order: list[str] = Field(default_factory=list, max_length=500)
 
 class SignInput(Input):
     contract_hash: str
@@ -112,7 +112,29 @@ class ResolutionInput(Reason):
     assignee: Optional[str] = None
     trust_delta: int = Field(le=0, ge=-100, default=0)
 
+class CircleSetup(Input):
+    name_min_length: int = Field(default=3, ge=1, le=200)
+    name_max_length: int = Field(default=80, ge=1, le=200)
+    amount_max_minor: int = Field(default=100_000_000_000, gt=0, le=9_000_000_000_000_000)
+    members_min: int = Field(default=2, ge=2, le=500)
+    members_max: int = Field(default=50, ge=2, le=500)
+    default_currency: str = 'NGN'
+    contribution_frequencies: list[Frequency] = Field(default_factory=lambda: ['daily','weekly','bi-weekly','monthly','bi-monthly','quarterly','semi-annual','yearly'])
+    collection_frequencies: list[Frequency] = Field(default_factory=lambda: ['daily','weekly','bi-weekly','monthly','bi-monthly','quarterly','semi-annual','yearly'])
+    default_contribution_frequency: Frequency = 'monthly'
+    default_collection_frequency: Frequency = 'monthly'
+    allow_overflow: Literal[False] = False
+
+    @model_validator(mode='after')
+    def coherent(self):
+        if self.name_min_length > self.name_max_length or self.members_min > self.members_max:
+            raise ValueError('Minimum must not exceed maximum')
+        if self.default_contribution_frequency not in self.contribution_frequencies or self.default_collection_frequency not in self.collection_frequencies:
+            raise ValueError('Default frequencies must be enabled')
+        return self
+
 class PolicyInput(Input):
+    circle_setup: CircleSetup = Field(default_factory=CircleSetup)
     launch_countries: list[str] = Field(default_factory=list)
     currencies: list[str] = Field(default_factory=lambda:['NGN','CAD','USD','GBP'])
     id_types: dict[str,list[str]] = Field(default_factory=dict)
@@ -140,6 +162,11 @@ class PolicyInput(Input):
 
     @model_validator(mode='after')
     def valid_tiers(self):
+        import re
+        if not self.currencies or len(set(self.currencies)) != len(self.currencies) or any(not re.fullmatch(r'[A-Z]{3}', c) for c in self.currencies):
+            raise ValueError('Currencies must be unique three-letter uppercase codes')
+        if self.circle_setup.default_currency not in self.currencies:
+            raise ValueError("Default circle currency must be enabled")
         if not self.tiers or any(set(t) != {'score','cap'} or t['cap'] < 1 or t['score'] < 0 for t in self.tiers):
             raise ValueError('Each tier needs a nonnegative score and a positive cap')
         if min(t['score'] for t in self.tiers) != 0:
@@ -162,3 +189,13 @@ class Preferences(Input):
     push: bool = True
     locale: str = Field(default='en', max_length=10)
     push_token: Optional[str] = Field(default=None, max_length=500)
+
+class ParticipantConfigChange(Reason):
+    tiers: list[dict[str, int]] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode='after')
+    def validated_tiers(self):
+        PolicyInput(tiers=self.tiers)
+        if len({tier['score'] for tier in self.tiers}) != len(self.tiers):
+            raise ValueError('Each score threshold must be unique')
+        return self

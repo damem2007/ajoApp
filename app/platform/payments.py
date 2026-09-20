@@ -88,8 +88,11 @@ def run_due(db,ctx,as_of=None):
     return {'paused':False,'processed':processed}
 
 def dispatch_notices(db,ctx):
+    from .models import NotificationChannel
+    enabled={c.id for c in db.scalars(select(NotificationChannel).where(NotificationChannel.enabled==True))}
     sent=0
     for n in rows(db,Notice,Notice.status.in_(['Queued','Failed']),Notice.attempts<5)[:100]:
+        if n.channel not in enabled: continue
         if n.attempts>=5: continue
         u=get(db,Account,n.user_id)
         destination=u.email if n.channel=='email' else u.phone if n.channel=='sms' else u.preferences.get('push_token','')
@@ -97,6 +100,9 @@ def dispatch_notices(db,ctx):
         n.attempts+=1
         try:
             body=ctx.vault.open(n.body) if n.title=='Verification code' else n.body
+            if n.title=='Staff invitation':
+                destination, token=ctx.vault.open(n.body).split('\n',1)
+                body='Accept your staff invitation in Ajo using this one-time code: '+token
             if n.channel=='push': destination=ctx.vault.open(destination)
             n.status=ctx.notifications.send(key=n.key,channel=n.channel,destination=destination,title=n.title,body=body)
             sent+=1

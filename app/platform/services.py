@@ -3,12 +3,13 @@ import base64
 import hashlib
 import json
 import os
+from app.config import environment_path
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from fastapi import HTTPException
 from sqlalchemy import select, func
-from .models import (Account, Policy, Circle, Participant, Contract, Signature, Due,
+from .models import (Account, Policy, Circle, Participant, Contract, Signature, Due, NotificationChannel,
                      Posting, TrustEvent, Notice, Audit, Bank, PaymentEvent, IdentityCase)
 from .schemas import PolicyInput
 from .security import Vault, digest
@@ -29,8 +30,14 @@ def audit(db, actor, resource, action, **detail):
 def notify(db, user_id, key, title, body, channels=None):
     user = get(db,Account,user_id)
     template=policy(db).data.get('notification_templates',{}).get(title)
-    if template and title!='Verification code': body=template.replace('{body}',body)
-    for channel in channels or ['in-app','email','sms','push']:
+    if template and title not in {'Verification code','Staff invitation'}: body=template.replace('{body}',body)
+    configured = {row.id:row for row in db.scalars(select(NotificationChannel))}
+    requested = list(configured) if channels is None else channels
+    for channel in requested:
+        config = configured.get(channel)
+        if not config or not config.enabled:
+            if channels is not None: fail('Notification channel is unavailable: '+channel,409)
+            continue
         if channels is None and channel not in ('in-app',) and user.preferences.get(channel,True) is False: continue
         unique = f'{key}:{user_id}:{channel}'
         if db.scalar(select(Notice.id).where(Notice.key==unique)): continue
@@ -43,7 +50,8 @@ def participants(db,cid):
                        Participant.status!='Left').order_by(Participant.joined_at,Participant.id)))
 
 def require_member(db,circle,user,staff=False):
-    if staff and user.role in ['admin','ops','compliance','support']: return
+    from .rbac import has_permission
+    if staff and has_permission(db,user,'circles.view'): return
     if not any(m.user_id==user.id for m in participants(db,circle.id)): fail('Membership required',403)
 
 def eligible(user):
@@ -99,7 +107,8 @@ def obligation(db,circle,user_id):
                 position='payback' if collected else 'credit')
 
 def account_view(db,u):
-    return dict(id=u.id,email=u.email,phone=u.phone,email_verified=u.email_verified,phone_verified=u.phone_verified,
+    from .rbac import permissions
+    return dict(permissions=sorted(permissions(db,u)),id=u.id,email=u.email,phone=u.phone,email_verified=u.email_verified,phone_verified=u.phone_verified,
                 kyc_status=u.kyc_status,pseudonym=u.pseudonym,role=u.role,suspended=u.suspended,
                 trust_score=u.score,scheme_cap=cap(db,u),commitments=commitments(db,u),mfa_enabled=u.mfa_enabled)
 
@@ -127,11 +136,11 @@ def circle_view(db,circle,user=None,staff=False):
 
 def load_vault(sandbox):
     # Production receives a mounted secret from a vault; no plaintext secret env value required.
-    filename=os.getenv('AJO_KEY_FILE')
+    filename=environment_path('AJO_KEY_FILE',required=False)
     if filename:
         return Vault(base64.urlsafe_b64decode(Path(filename).read_bytes().strip()))
     if not sandbox: return None
-    path=Path(os.getenv('AJO_DATA_DIR','.ajo-data'))
+    path=environment_path('AJO_DATA_DIR')
     path.mkdir(mode=0o700,parents=True,exist_ok=True)
     keyfile=path/'sandbox.key'
     if not keyfile.exists():

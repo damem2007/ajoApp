@@ -4,6 +4,7 @@ import secrets
 import time
 from datetime import date
 from typing import Optional
+from app.config import setting
 from fastapi import APIRouter, Depends, Request, UploadFile, File, Query, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import select, delete
@@ -12,9 +13,15 @@ from .schemas import Register, Login, Verify, KYCInput, BankInput, Preferences, 
 from .security import secret, digest, password_hash, password_ok, verify_totp, canonical
 from .services import get, rows, fail, audit, notify, account_view, policy, eligible
 
+
+defaultThrottleLimit = int(setting('THROTTLE_LIMIT'))
+defaultThrottleWindow = int(setting('THROTTLE_WINDOW'))
+
 def routes(ctx):
     router=APIRouter(prefix='/api/v1',tags=['Identity'])
     dbdep=ctx.session
+    #print(f"throttleLimit: {defaultThrottleLimit}")
+    #print(f"throttleWindow: {defaultThrottleWindow}")
 
     def token_pair(db,user):
         access,refresh=secret(),secret()
@@ -22,7 +29,7 @@ def routes(ctx):
                             expires=int(time.time())+900,refresh_expires=int(time.time())+86400*7))
         return dict(access_token=access,refresh_token=refresh,token_type='bearer',expires_in=900,user=account_view(db,user))
 
-    def throttle(db,key,limit=10,seconds=300):
+    def throttle(db,key,limit=defaultThrottleLimit,seconds=defaultThrottleWindow):
         k=digest(key); row=db.get(RateLimit,k); now=int(time.time())
         if not row:
             row=RateLimit(key=k,count=0,until=now+seconds);db.add(row)
@@ -110,7 +117,7 @@ def routes(ctx):
 
     @router.get('/auth/sandbox-inbox')
     def inbox(db=Depends(dbdep),user=Depends(ctx.actor)):
-        ctx.require_sandbox()
+        ctx.require_sandbox("notifications")
         return [dict(id=n.id,channel=n.channel,code=ctx.vault.open(n.body),created_at=n.created_at)
                 for n in rows(db,Notice,Notice.user_id==user.id,Notice.title=='Verification code')][-10:]
 
@@ -201,16 +208,12 @@ def routes(ctx):
     @router.post('/banks',status_code=201)
     def bank(body:BankInput,db=Depends(dbdep),user=Depends(ctx.actor)):
         eligible(user)
-        # Only sandbox tokens may self-verify. Live bank verification is fail-closed.
-        ctx.require_sandbox()
-        if not body.provider_token.startswith(('sandbox-ok-','sandbox-fail-','sandbox-pending-')):
-            fail('Use a sandbox provider token; never submit raw bank details',422)
-        fp=ctx.vault.fingerprint(body.provider_token)
-        if db.scalar(select(Bank.id).where(Bank.token_hash==fp)): fail('Bank token already linked; duplicate review required')
-        b=Bank(user_id=user.id,token_hash=fp,encrypted_token=ctx.vault.seal(body.provider_token),
-               masked='•••• '+digest(body.provider_token)[-4:],status='Verified',mandate=True)
-        db.add(b);db.flush();audit(db,user,b.id,'sandbox_bank_verified')
-        return {'id':b.id,'masked':b.masked,'status':b.status,'sandbox':True}
+        ctx.ensure_configured('payments')
+        try: linked=ctx.payments.link_bank(bank_token=body.provider_token)
+        except ValueError as error: fail(str(error),422)
+        b=Bank(user_id=user.id,token_hash=ctx.vault.fingerprint(body.provider_token),encrypted_token=ctx.vault.seal(body.provider_token),masked=linked['masked'],status=linked['status'],mandate=body.mandate_accepted)
+        db.add(b);db.flush();audit(db,user,b.id,'provider_bank_linked')
+        return {'id':b.id,'masked':b.masked,'status':b.status,'sandbox':ctx.provider_names['payments']=='sandbox'}
 
     @router.get('/banks')
     def banks(db=Depends(dbdep),user=Depends(ctx.actor)):

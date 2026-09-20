@@ -9,7 +9,7 @@ from sqlalchemy import select,func,delete
 from pydantic import Field
 from .models import (Account,SessionToken,IdentityCase,Document,Bank,Policy,Circle,Contract,Participant,Due,
                      Posting,PaymentEvent,TrustEvent,Notice,Complaint,Audit,DataRequest,Signature)
-from .schemas import Input,Reason,ReviewInput,ComplaintInput,ResolutionInput,PolicyChange
+from .schemas import Input,Reason,ReviewInput,ComplaintInput,ResolutionInput,PolicyChange,ParticipantConfigChange
 from .services import (get,rows,fail,policy,audit,notify,trust,transition,require_member,participants,cap,
                        account_view,circle_view,balances,obligation)
 from .payments import run_due,dispatch_notices,apply_result,complete
@@ -18,9 +18,9 @@ from .security import secret,digest
 def routes(ctx):
     router=APIRouter(prefix='/api/v1',tags=['Operations'])
     dbdep=ctx.session
-    admin=ctx.staff('admin');ops=ctx.staff('admin','ops');compliance=ctx.staff('admin','compliance')
-    support=ctx.staff('admin','support','compliance')
-    staff=ctx.staff('admin','ops','support','compliance')
+    admin=ctx.require_permission('settings.manage');ops=ctx.require_permission('payments.manage');compliance=ctx.require_permission('compliance.manage')
+    support=ctx.require_permission('support.manage')
+    staff=ctx.require_permission('members.view')
 
     @router.get('/notifications')
     def notices(offset:int=Query(0,ge=0),db=Depends(dbdep),user=Depends(ctx.actor)):
@@ -72,10 +72,13 @@ def routes(ctx):
 
     class AccountChange(Reason): suspended:bool
     @router.post('/admin/users/{uid}/status')
-    def user_status(uid:str,body:AccountChange,db=Depends(dbdep),user=Depends(admin)):
+    def user_status(uid:str,body:AccountChange,db=Depends(dbdep),user=Depends(ctx.require_permission('members.manage'))):
         u=get(db,Account,uid)
         if u.id==user.id: fail('Cannot suspend your own administrator account')
         u.suspended=body.suspended
+        from .models import StaffMembership, now
+        membership=db.get(StaffMembership,uid)
+        if membership: membership.status="disabled" if body.suspended else "active";membership.updated_at=now()
         if u.suspended: db.execute(delete(SessionToken).where(SessionToken.user_id==uid))
         audit(db,user,uid,'account_status',suspended=body.suspended,reason=body.reason)
         notify(db,uid,'account-status:'+secret(),'Account status changed',body.reason)
@@ -83,10 +86,11 @@ def routes(ctx):
 
     class RoleChange(Reason): role:Literal['member','admin','ops','support','compliance']
     @router.post('/admin/users/{uid}/role')
-    def role(uid:str,body:RoleChange,db=Depends(dbdep),user=Depends(admin)):
+    def role(uid:str,body:RoleChange,db=Depends(dbdep),user=Depends(ctx.require_permission('members.manage'))):
         u=get(db,Account,uid)
         if u.id==user.id: fail('Cannot change your own role')
-        u.role=body.role
+        from .rbac import assign
+        assign(db,u,body.role,user)
         db.execute(delete(SessionToken).where(SessionToken.user_id==uid))
         audit(db,user,uid,'role_changed',role=body.role,reason=body.reason)
         return account_view(db,u)
@@ -119,7 +123,7 @@ def routes(ctx):
         k=get(db,IdentityCase,kid);u=get(db,Account,k.user_id)
         if k.status not in ['Pending','UnderReview']: fail('This submission is already decided; request a new submission')
         if body.decision=='Approved':
-            ctx.require_sandbox()
+            ctx.ensure_configured("identity")
             identity=json.loads(ctx.vault.open(k.encrypted_data))
             if date.fromisoformat(identity['expiry'])<=date.today(): fail('Identity document has expired')
             if any('Duplicate' in s or 'Shared device' in s for s in k.signals) and not body.duplicate_reviewed: fail('Explicit duplicate review acknowledgement required')
@@ -156,6 +160,20 @@ def routes(ctx):
         if c.config['privacy']!='public' and (body.featured or body.premium): fail('Only public circles may be featured or premium')
         c.featured=body.featured;c.removed=body.removed;c.config={**c.config,'premium':body.premium}
         audit(db,user,cid,'marketplace_curated',**body.model_dump());return circle_view(db,c,user,staff=True)
+
+    @router.get('/admin/participant-config')
+    def participant_config(db=Depends(dbdep),user=Depends(admin)):
+        p=policy(db)
+        return {'policy_version':p.id,'tiers':p.data['tiers']}
+
+    @router.post('/admin/participant-config',status_code=201)
+    def update_participant_config(body:ParticipantConfigChange,db=Depends(dbdep),user=Depends(admin)):
+        current=policy(db)
+        data={**current.data,'tiers':sorted(body.tiers,key=lambda tier:tier['score'])}
+        p=Policy(data=data,actor_id=user.id,reason=body.reason)
+        db.add(p);db.flush()
+        audit(db,user,str(p.id),'participant_config_changed',reason=body.reason,tiers=data['tiers'])
+        return {'policy_version':p.id,'tiers':data['tiers']}
 
     @router.get('/admin/policies')
     def policies(db=Depends(dbdep),user=Depends(admin)):
@@ -199,7 +217,7 @@ def routes(ctx):
         return {'status':r.status}
 
     @router.get('/admin/payments')
-    def payments(status:Optional[str]=None,circle_id:Optional[str]=None,db=Depends(dbdep),user=Depends(ops)):
+    def payments(status:Optional[str]=None,circle_id:Optional[str]=None,db=Depends(dbdep),user=Depends(ctx.require_permission("payments.view"))):
         return [dict(id=d.id,circle_id=d.circle_id,user_id=d.user_id,date=d.date,kind=d.kind,status=d.status,
                      amount_minor=d.amount_minor,attempts=d.attempts,provider_ref=d.provider_ref)
                 for d in rows(db,Due) if (not status or d.status==status) and (not circle_id or d.circle_id==circle_id)]
@@ -207,7 +225,8 @@ def routes(ctx):
     class Tick(Input): as_of:Optional[date]=None
     @router.post('/admin/jobs/run')
     def tick(body:Tick,db=Depends(dbdep),user=Depends(ops)):
-        ctx.require_sandbox()
+        ctx.ensure_configured("payments");ctx.ensure_configured("notifications")
+        if body.as_of and body.as_of!=date.today(): ctx.require_sandbox("payments")
         result=run_due(db,ctx,body.as_of);result['notifications_dispatched']=dispatch_notices(db,ctx)
         audit(db,user,'scheduler','manual_tick',as_of=str(body.as_of or date.today()))
         return result
@@ -217,7 +236,7 @@ def routes(ctx):
         event_id:str=Field(min_length=8,max_length=100)
     @router.post('/admin/payments/{did}/reconcile')
     def reconcile(did:str,body:Reconcile,db=Depends(dbdep),user=Depends(ops)):
-        ctx.require_sandbox();d=get(db,Due,did)
+        ctx.require_sandbox("payments");d=get(db,Due,did)
         apply_result(db,d,body.status,'manual:'+did+':'+body.event_id,body.reason,user.id)
         complete(db,get(db,Circle,d.circle_id));return {'status':d.status}
 
@@ -231,7 +250,7 @@ def routes(ctx):
         return {'status':'RetryScheduled'}
 
     @router.get('/admin/notifications')
-    def delivery(db=Depends(dbdep),user=Depends(ops)):
+    def delivery(db=Depends(dbdep),user=Depends(ctx.require_permission("notifications.view"))):
         return [dict(id=n.id,user_id=n.user_id,channel=n.channel,title=n.title,status=n.status,attempts=n.attempts)
                 for n in rows(db,Notice)][-500:]
 
@@ -243,7 +262,7 @@ def routes(ctx):
         return {'status':n.status}
 
     @router.get('/admin/audit')
-    def audits(resource:Optional[str]=None,db=Depends(dbdep),user=Depends(admin)):
+    def audits(resource:Optional[str]=None,db=Depends(dbdep),user=Depends(ctx.require_permission("audit.view"))):
         return [dict(id=a.id,actor_id=a.actor_id,resource=a.resource,action=a.action,detail=a.detail,created_at=a.created_at)
                 for a in rows(db,Audit) if not resource or a.resource==resource][-500:]
 

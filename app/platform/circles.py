@@ -13,12 +13,20 @@ from .contracts import render_contract
 from .services import (get,rows,fail,audit,notify,participants,eligible,require_member,check_cap,
                        circle_view,transition,policy,assert_launch_policy,commitments,cap)
 
+from .setup import circle_setup, validate_circle_setup
+
 def routes(ctx):
     router=APIRouter(prefix='/api/v1',tags=['Circles and contracts'])
     dbdep=ctx.session
 
+    @router.get("/public/circle-setup")
+    def setup(db=Depends(dbdep)):
+        print(f"circle_setup: {circle_setup(db)}")
+        return circle_setup(db)
+
     def contract_access(db,con,user):
-        if user.role in ['admin','ops','compliance']: return
+        from .rbac import has_permission
+        if has_permission(db,user,'contracts.view'): return
         if user.id not in [m['id'] for m in con.content['members']]: fail('Only original contract parties can access this version',403)
 
     def owned(db,cid,user):
@@ -73,7 +81,8 @@ def routes(ctx):
         return config,planned
 
     @router.post('/circles/preview')
-    def preview_plan(body:CircleInput,user=Depends(ctx.actor)):
+    def preview_plan(body:CircleInput,db=Depends(dbdep),user=Depends(ctx.actor)):
+        validate_circle_setup(db,body)
         if body.contribution_minor is None: fail('Enter a fixed contribution amount',422)
         config,planned=fixed_plan(body)
         return {'contribution_minor':config['contribution_minor'],'target_minor':config['target_minor'],
@@ -83,10 +92,11 @@ def routes(ctx):
 
     @router.post('/circles',status_code=201)
     def create(body:CircleInput,db=Depends(dbdep),user=Depends(ctx.actor)):
+        validate_circle_setup(db,body)
         eligible(user);check_cap(db,user)
         if body.contribution_minor is not None: fixed_plan(body)
         elif not ctx.sandbox: fail('Enter a fixed contribution amount',422)
-        if body.currency not in policy(db).data['currencies']: fail('Unsupported currency',422)
+        validate_circle_setup(db,body)
         if body.start_date<date.today(): fail('Start date cannot be in the past',422)
         seed=secret()
         c=Circle(creator_id=user.id,name=body.name,config=body.model_dump(mode='json'),seed=ctx.vault.seal(seed),commitment=digest(seed))
@@ -106,11 +116,11 @@ def routes(ctx):
 
     @router.put('/circles/{cid}')
     def edit(cid:str,body:CircleInput,db=Depends(dbdep),user=Depends(ctx.actor)):
+        validate_circle_setup(db,body)
         if body.contribution_minor is not None: fixed_plan(body)
         c=owned(db,cid,user)
         if c.state not in ['Draft','Recruiting','Finalizable']: fail('Frozen schemes require a new contract version')
         if body.planned_members<len(participants(db,cid)): fail('New cap is below current membership')
-        if body.currency not in policy(db).data['currencies']: fail('Unsupported currency',422)
         c.config=body.model_dump(mode='json');c.name=body.name
         if c.state!='Draft': transition(db,c,'Recruiting',user,'Configuration changed; recruitment reopened')
         audit(db,user,cid,'configuration_updated')

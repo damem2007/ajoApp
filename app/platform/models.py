@@ -259,3 +259,64 @@ class ContentRevision(Base):
     author_id = Column(String, ForeignKey('accounts.id'))
     reason = Column(String, nullable=False)
     created_at = Column(String, default=now, nullable=False)
+
+
+class NotificationChannel(Base):
+    __tablename__ = 'notification_channels'
+    id = Column(String, primary_key=True)
+    display_name = Column(String, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(String, nullable=False, default=now)
+    updated_at = Column(String, nullable=False, default=now)
+
+class StaffRole(Base):
+    __tablename__ = 'staff_roles'
+    id = Column(String, primary_key=True)
+    permissions = Column(JSON, nullable=False)
+    created_at = Column(String, nullable=False, default=now)
+
+class StaffMembership(Base):
+    __tablename__ = 'staff_memberships'
+    user_id = Column(String, ForeignKey('accounts.id'), primary_key=True)
+    role_id = Column(String, ForeignKey('staff_roles.id'), nullable=False)
+    status = Column(String, nullable=False, default='active')
+    created_by = Column(String, nullable=False)
+    created_at = Column(String, nullable=False, default=now)
+    updated_at = Column(String, nullable=False, default=now)
+
+class StaffInvitation(Base):
+    __tablename__ = 'staff_invitations'
+    id = Column(String, primary_key=True, default=uid)
+    email = Column(String, nullable=False)
+    role_id = Column(String, ForeignKey('staff_roles.id'), nullable=False)
+    token_hash = Column(String, unique=True, nullable=False)
+    expires = Column(BigInteger, nullable=False)
+    status = Column(String, nullable=False, default='invited')
+    created_by = Column(String, ForeignKey('accounts.id'), nullable=False)
+    accepted_by = Column(String, ForeignKey('accounts.id'))
+    created_at = Column(String, nullable=False, default=now)
+
+class SyncBatch(Base):
+    __tablename__ = 'sync_batches'
+    id = Column(String, primary_key=True, default=uid)
+    sequence = Column(Integer, nullable=False)
+    source = Column(String, nullable=False)
+    changes = Column(JSON, nullable=False)
+    status = Column(String, nullable=False, default='pending')
+    attempts = Column(Integer, nullable=False, default=0)
+    error_code = Column(String)
+    created_at = Column(String, nullable=False, default=now)
+    synced_at = Column(String)
+
+class SyncReceipt(Base):
+    __tablename__ = 'sync_receipts'
+    id = Column(String, primary_key=True)
+    source = Column(String, nullable=False)
+    applied_at = Column(String, nullable=False, default=now)
+
+class SyncControl(Base):
+    __tablename__ = 'sync_control'
+    id = Column(String, primary_key=True)
+    state = Column(String, nullable=False)
+    detail = Column(String)
+    updated_at = Column(String, nullable=False, default=now)
