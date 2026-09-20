@@ -16,7 +16,8 @@ from .runtime import Context
 from .services import seed_policy
 from .integrity import install_guards
 from . import auth,circles,operations,cms,frontend_routes,administration
-from .rbac import bootstrap
+from .rbac import bootstrap as bootstrap_rbac
+from .bootstrap import bootstrap_superadmin
 
 def create_platform(database_url=None,sandbox=None):
     initialize_test_fixture = sandbox is not None
@@ -28,7 +29,12 @@ def create_platform(database_url=None,sandbox=None):
             Base.metadata.create_all(engine)
             with engine.begin() as connection: install_guards(connection)
             with Session(engine) as db,db.begin():
-                seed_policy(db,bool(sandbox));bootstrap(db)
+                seed_policy(db,bool(sandbox));bootstrap_rbac(db);bootstrap_superadmin(db)
+        else:
+            # Production/local deployments are migrated explicitly, then startup
+            # ensures only required system data and the optional Super Admin.
+            with Session(engine) as db,db.begin():
+                seed_policy(db,ctx.sandbox);bootstrap_rbac(db);bootstrap_superadmin(db)
         yield
         engine.dispose()
     app=FastAPI(title='Ajo platform',version='0.2.0',lifespan=lifespan)
