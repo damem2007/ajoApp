@@ -7,6 +7,7 @@ from app.platform.ledger import post_payment_result
 from app.platform.providers import SandboxPayments, SandboxIdentity, SandboxNotifications, TransferRequest
 from app.platform.scheduler import enqueue_reconciliation_scan
 from app.platform.outbox import queue_for
+from tests.test_full_platform import client, activate
 
 
 def test_provider_contracts_support_portable_operations():
@@ -59,7 +60,6 @@ def test_payment_scan_creates_durable_execution_intent_without_provider_call(cli
     from sqlalchemy.orm import Session
     from app.platform.payments import enqueue_due
     from app.platform.models import OutboxEvent, Due
-    from tests.test_full_platform import activate
 
     cid,_=activate(client)
     class ExplodingProvider:
