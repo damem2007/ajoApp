@@ -320,3 +320,29 @@ class SyncControl(Base):
     state = Column(String, nullable=False)
     detail = Column(String)
     updated_at = Column(String, nullable=False, default=now)
+
+
+class OutboxEvent(Base):
+    """Transactional event written with the domain mutation that produced it."""
+    __tablename__ = 'outbox_events'
+    __table_args__ = (UniqueConstraint('idempotency_key'),)
+    id = Column(String, primary_key=True, default=uid)
+    event_type = Column(String, nullable=False, index=True)
+    aggregate_type = Column(String, nullable=False)
+    aggregate_id = Column(String, nullable=False, index=True)
+    idempotency_key = Column(String, nullable=False)
+    payload = Column(JSON, nullable=False, default=dict)
+    status = Column(String, nullable=False, default='pending', index=True)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    last_error = Column(String)
+    created_at = Column(String, nullable=False, default=now)
+    published_at = Column(String)
+    completed_at = Column(String)
+
+
+class WorkerReceipt(Base):
+    """Idempotency receipt for at-least-once queue delivery."""
+    __tablename__ = 'worker_receipts'
+    event_id = Column(String, primary_key=True)
+    worker = Column(String, nullable=False)
+    completed_at = Column(String, nullable=False, default=now)
