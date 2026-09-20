@@ -21,7 +21,9 @@ def configure_schema_environment() -> None:
     os.environ.setdefault("CORS_ALLOWED_ORIGINS", "http://localhost:9520")
     os.environ.setdefault("AJO_API_HOST", "127.0.0.1")
     os.environ.setdefault("AJO_API_PORT", "9020")
-    os.environ.setdefault("AJO_WORKER_INTERVAL_SECONDS", "30")\n    os.environ.setdefault("THROTTLE_LIMIT", "5")\n    os.environ.setdefault("THROTTLE_WINDOW", "300")
+    os.environ.setdefault("AJO_WORKER_INTERVAL_SECONDS", "30")
+    os.environ.setdefault("THROTTLE_LIMIT", "5")
+    os.environ.setdefault("THROTTLE_WINDOW", "300")
 
 
 def main() -> None:
@@ -33,7 +35,8 @@ def main() -> None:
     from app.platform.application import create_platform
 
     schema = create_platform(database_url="sqlite:///:memory:", sandbox=True).openapi()
-    encoded = json.dumps(schema, indent=2, sort_keys=True) + "\n"
+    encoded = json.dumps(schema, indent=2, sort_keys=True) + "
+"
     if args.output == "-":
         print(encoded, end="")
     else:
