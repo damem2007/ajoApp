@@ -213,6 +213,21 @@ class Notice(Base):
     read = Column(Boolean, default=False, nullable=False)
     created_at = Column(String, default=now, nullable=False)
 
+class OutboxEvent(Base):
+    __tablename__ = 'outbox_events'
+    id = Column(String, primary_key=True, default=uid)
+    event_type = Column(String, nullable=False, index=True)
+    aggregate_type = Column(String, nullable=False)
+    aggregate_id = Column(String)
+    payload = Column(JSON, nullable=False, default=dict)
+    idempotency_key = Column(String, unique=True, nullable=False)
+    status = Column(String, nullable=False, default='pending', index=True)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(String, nullable=False, default=now)
+    published_at = Column(String)
+    completed_at = Column(String)
+    last_error = Column(String)
+
 class Complaint(Base):
     __tablename__ = 'complaints'
     id = Column(String, primary_key=True, default=uid)
