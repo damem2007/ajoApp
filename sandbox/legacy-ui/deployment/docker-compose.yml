@@ -1,0 +1,21 @@
+services:
+  backend:
+    build: .
+    environment:
+      AJO_DEMO_MODE: 'true'
+      AJO_PLATFORM_DATABASE_URL: sqlite:////data/ajo-platform.db
+      AJO_DATA_DIR: /data/secrets
+    volumes:
+      - ajo-data:/data
+    ports:
+      - '8000:8000'
+  frontend:
+    build: ./frontend
+    environment:
+      AJO_API_ORIGIN: http://backend:8000
+    ports:
+      - '3000:3000'
+    depends_on:
+      - backend
+volumes:
+  ajo-data:

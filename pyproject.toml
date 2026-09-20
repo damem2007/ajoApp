@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ajo-platform"
+version = "0.2.0"
+description = "Ajo rotating savings — local financial-domain bootstrap"
+requires-python = ">=3.9"
+dependencies = ["fastapi>=0.115,<0.129", "uvicorn>=0.30,<0.40", "sqlalchemy>=2.0,<2.1", "cryptography>=43,<47", "reportlab>=4,<5", "alembic>=1.13,<2", "python-multipart>=0.0.20,<0.1", "python-dotenv>=1,<2", "psycopg[binary]>=3.2,<4"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9", "httpx>=0.27,<0.29"]
+postgres = ["psycopg[binary]>=3.2,<4"]
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

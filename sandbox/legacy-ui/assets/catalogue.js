@@ -1,0 +1,1 @@
+async function loadMarketplaceCatalogue(){const response=await fetch('/api/v1/public/marketplace');if(!response.ok)throw Error('We couldn’t load circles. Please try again.');const circles=await response.json();if(circles.length)return circles;const health=await fetch('/health');return health.ok&&(await health.json()).sandbox?AjoMarketplaceExamples:circles;}
