@@ -1,4 +1,4 @@
-"""Run the API with the host and port configured in backend/.env."""
+"""Run the API with the host and port configured in .env."""
 from .config import api_binding
 
 
