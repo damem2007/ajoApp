@@ -7,7 +7,7 @@ providers can be registered without changing Circle, Ledger or payment logic.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -26,6 +26,7 @@ class PaymentResult:
     detail: str = ''
 
 
+@runtime_checkable
 class PaymentProvider(Protocol):
     def link_bank(self, *, bank_token: str) -> dict: ...
     def initiate_transfer(self, request: TransferRequest) -> PaymentResult: ...
@@ -33,10 +34,12 @@ class PaymentProvider(Protocol):
     def cancel_transfer(self, *, reference: str, key: str) -> PaymentResult: ...
 
 
+@runtime_checkable
 class IdentityProvider(Protocol):
     def submit(self, *, key: str, identity: dict, document: bytes, selfie: bytes) -> dict: ...
 
 
+@runtime_checkable
 class NotificationProvider(Protocol):
     def send(self, *, key: str, channel: str, destination: str, title: str, body: str) -> str: ...
 

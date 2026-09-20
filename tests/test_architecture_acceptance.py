@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session
 
 from app.platform.models import Base, Posting
 from app.platform.ledger import post_payment_result
-from app.platform.providers import SandboxPayments, SandboxIdentity, SandboxNotifications, TransferRequest
+from app.platform.providers import (SandboxPayments, SandboxIdentity, SandboxNotifications, TransferRequest,
+    PaymentProvider, IdentityProvider, NotificationProvider)
 from app.platform.scheduler import enqueue_reconciliation_scan
 from app.platform.outbox import queue_for
 from tests.test_full_platform import client, activate
@@ -12,6 +13,9 @@ from tests.test_full_platform import client, activate
 
 def test_provider_contracts_support_portable_operations():
     payment=SandboxPayments()
+    assert isinstance(payment,PaymentProvider)
+    assert isinstance(SandboxIdentity(),IdentityProvider)
+    assert isinstance(SandboxNotifications(),NotificationProvider)
     result=payment.initiate_transfer(TransferRequest('idem-1',100,'CAD','contribution','sandbox-ok-bank'))
     assert result.status=='Settled'
     assert payment.initiate_transfer(TransferRequest('idem-1',100,'CAD','contribution','sandbox-ok-bank'))==result
