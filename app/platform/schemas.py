@@ -133,6 +133,10 @@ class CircleSetup(Input):
             raise ValueError('Default frequencies must be enabled')
         return self
 
+class CircleSetupResponse(CircleSetup):
+    currencies: list[str]
+
+
 class PolicyInput(Input):
     circle_setup: CircleSetup = Field(default_factory=CircleSetup)
     launch_countries: list[str] = Field(default_factory=list)
