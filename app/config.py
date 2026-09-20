@@ -109,3 +109,7 @@ def resilience_enabled():
     if value not in {'true', 'false'}:
         raise ConfigurationError('AJO_DATABASE_RESILIENCE must be true or false.')
     return value == 'true'
+
+
+def redis_url():
+    return setting('AJO_REDIS_URL', 'REDIS_URL')
