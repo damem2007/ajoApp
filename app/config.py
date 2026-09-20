@@ -23,7 +23,7 @@ def setting(name, *aliases, required=True):
         if value:
             return value
     if required:
-        raise ConfigurationError('Set ' + ' or '.join((name, *aliases)) + ' in backend/.env or the process environment.')
+        raise ConfigurationError('Set ' + ' or '.join((name, *aliases)) + ' in .env or the process environment.')
     return None
 
 
