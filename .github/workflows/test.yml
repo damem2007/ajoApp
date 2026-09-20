@@ -1,0 +1,28 @@
+name: backend
+
+on:
+  push:
+    branches: [main, "architecture/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+      - name: Test
+        run: python -m pytest -q
+      - name: Export OpenAPI
+        run: python scripts/export_openapi.py --output /tmp/openapi.json
+      - name: Validate OpenAPI contract
+        run: python -c "import json; d=json.load(open('/tmp/openapi.json')); assert 'CircleSetupResponse' in d['components']['schemas']"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ajo-openapi
+          path: /tmp/openapi.json

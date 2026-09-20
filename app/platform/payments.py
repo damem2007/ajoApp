@@ -87,13 +87,19 @@ def run_due(db,ctx,as_of=None):
         if days in [0,3]: notify(db,d.user_id,f'reminder:{d.id}:{days}','Upcoming '+d.kind,f'Due {d.date}: {d.amount_minor} minor units')
     return {'paused':False,'processed':processed}
 
-def dispatch_notices(db,ctx):
+def dispatch_notices(db,ctx,notice_id=None):
+    """Dispatch one outbox-addressed notice or a bounded legacy batch."""
     from .models import NotificationChannel
     enabled={c.id for c in db.scalars(select(NotificationChannel).where(NotificationChannel.enabled==True))}
     sent=0
-    for n in rows(db,Notice,Notice.status.in_(['Queued','Failed']),Notice.attempts<5)[:100]:
+    if notice_id:
+        notice=db.get(Notice,notice_id)
+        notices=[notice] if notice else []
+    else:
+        notices=rows(db,Notice,Notice.status.in_(['Queued','Failed']),Notice.attempts<5)[:100]
+    for n in notices:
+        if not n or n.status not in ['Queued','Failed'] or n.attempts>=5: continue
         if n.channel not in enabled: continue
-        if n.attempts>=5: continue
         u=get(db,Account,n.user_id)
         destination=u.email if n.channel=='email' else u.phone if n.channel=='sms' else u.preferences.get('push_token','')
         if n.channel=='push' and not destination: n.status='NoDestination';continue

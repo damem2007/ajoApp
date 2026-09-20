@@ -1,0 +1,111 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ajo
+      POSTGRES_USER: ajo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ajo-local}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ajo -d ajo"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build: .
+    env_file: .env
+    environment: &backend-env
+      DATABASE_URL: postgresql://ajo:${POSTGRES_PASSWORD:-ajo-local}@postgres:5432/ajo
+      AJO_DATABASE_MODE: postgres
+      AJO_REDIS_URL: redis://redis:6379/0
+      AJO_DATA_DIR: /data/secrets
+    volumes:
+      - ajo-secrets:/data/secrets
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: .
+    env_file: .env
+    environment: *backend-env
+    volumes:
+      - ajo-secrets:/data/secrets
+    ports:
+      - "9020:9020"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  outbox-dispatcher:
+    build: .
+    env_file: .env
+    environment: *backend-env
+    volumes:
+      - ajo-secrets:/data/secrets
+    command: ["python", "-m", "app.platform.cli", "outbox-dispatcher"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  payment-worker:
+    build: .
+    env_file: .env
+    environment: *backend-env
+    volumes:
+      - ajo-secrets:/data/secrets
+    command: ["python", "-m", "app.platform.cli", "payment-worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  notification-worker:
+    build: .
+    env_file: .env
+    environment: *backend-env
+    volumes:
+      - ajo-secrets:/data/secrets
+    command: ["python", "-m", "app.platform.cli", "notification-worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    build: .
+    env_file: .env
+    environment: *backend-env
+    volumes:
+      - ajo-secrets:/data/secrets
+    command: ["python", "-m", "app.platform.cli", "scheduler"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  redis-data:
+  ajo-secrets:

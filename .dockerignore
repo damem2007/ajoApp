@@ -1,0 +1,12 @@
+.git
+.venv
+__pycache__
+.pytest_cache
+*.pyc
+*.db
+*.db-*
+.env
+.ajo-data
+ajo-data
+docs
+tests

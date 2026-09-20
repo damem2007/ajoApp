@@ -14,8 +14,8 @@ from .security import secret, digest, password_hash, password_ok, verify_totp, c
 from .services import get, rows, fail, audit, notify, account_view, policy, eligible
 
 
-defaultThrottleLimit = int(setting('THROTTLE_LIMIT'))
-defaultThrottleWindow = int(setting('THROTTLE_WINDOW'))
+defaultThrottleLimit = int(setting('THROTTLE_LIMIT', required=False) or '5')
+defaultThrottleWindow = int(setting('THROTTLE_WINDOW', required=False) or '300')
 
 def routes(ctx):
     router=APIRouter(prefix='/api/v1',tags=['Identity'])

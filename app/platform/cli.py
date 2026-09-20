@@ -2,7 +2,7 @@
 import argparse
 import getpass
 from contextlib import contextmanager
-from app.config import worker_interval_seconds
+from app.config import worker_interval_seconds, redis_url
 import time
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -11,10 +11,13 @@ from .security import password_hash,secret
 from .services import seed_policy,audit
 from .application import create_platform
 from .payments import run_due,dispatch_notices
+from .outbox import RedisPublisher, dispatch_pending
+from .scheduler import enqueue_due_scan
+from .workers import worker_loop
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('command',choices=['init-admin','seed-demo','worker','sync-init','sync-status','sync-retry'])
+    parser.add_argument('command',choices=['init-admin','seed-demo','worker','outbox-dispatcher','payment-worker','notification-worker','scheduler','sync-init','sync-status','sync-retry'])
     parser.add_argument('--email')
     parser.add_argument('--phone')
     parser.add_argument('--once',action='store_true')
@@ -23,6 +26,43 @@ def main():
     if not ctx.vault: parser.error('Configure AJO_KEY_FILE first')
     if args.command in {'init-admin','seed-demo'}:
         with contextmanager(ctx.session)() as db: seed_policy(db,False)
+    if args.command=='outbox-dispatcher':
+        publisher=RedisPublisher(redis_url())
+        interval=worker_interval_seconds()
+        try:
+            while True:
+                gen=ctx.session();db=next(gen)
+                try:
+                    count=dispatch_pending(db,publisher.publish)
+                    try: next(gen)
+                    except StopIteration: pass
+                    print({'published':count},flush=True)
+                except Exception:
+                    gen.close();raise
+                if args.once: break
+                time.sleep(interval)
+        finally:
+            publisher.close()
+        return
+    if args.command in {'payment-worker','notification-worker'}:
+        worker='payment' if args.command=='payment-worker' else 'notification'
+        ctx.ensure_configured('payments' if worker=='payment' else 'notifications')
+        worker_loop(ctx,worker,redis_url(),once=args.once)
+        return
+    if args.command=='scheduler':
+        interval=worker_interval_seconds()
+        while True:
+            gen=ctx.session();db=next(gen)
+            try:
+                count=enqueue_due_scan(db)
+                try: next(gen)
+                except StopIteration: pass
+                print({'scheduled':count},flush=True)
+            except Exception:
+                gen.close();raise
+            if args.once: break
+            time.sleep(interval)
+        return
     if args.command=='sync-status':
         if not ctx.router: parser.error('Database resilience is not enabled')
         from .models import SyncBatch, SyncControl
