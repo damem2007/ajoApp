@@ -25,6 +25,9 @@ class Account(Base):
     mfa_enabled = Column(Boolean, default=False, nullable=False)
     mfa_counter = Column(BigInteger, default=-1, nullable=False)
     preferences = Column(JSON, default=dict, nullable=False)
+    source = Column(String, default='app', nullable=False)
+    is_test_account = Column(Boolean, default=False, nullable=False)
+    test_run_id = Column(String, index=True)
     created_at = Column(String, default=now, nullable=False)
 
 class SessionToken(Base):
@@ -105,6 +108,9 @@ class Circle(Base):
     seed = Column(Text, nullable=False)
     commitment = Column(String, nullable=False)
     contract_id = Column(String)
+    source = Column(String, default='app', nullable=False)
+    is_test_data = Column(Boolean, default=False, nullable=False)
+    test_run_id = Column(String, index=True)
     created_at = Column(String, default=now, nullable=False)
 
 class Participant(Base):
@@ -346,3 +352,29 @@ class WorkerReceipt(Base):
     event_id = Column(String, primary_key=True)
     worker = Column(String, nullable=False)
     completed_at = Column(String, nullable=False, default=now)
+
+
+class DegradedOperation(Base):
+    """Durable SQLite-only journal entry for a degraded-mode transaction."""
+    __tablename__ = 'degraded_operations'
+    id = Column(String, primary_key=True, default=uid)
+    operation_type = Column(String, nullable=False)
+    aggregate_type = Column(String, nullable=False)
+    aggregate_id = Column(String)
+    payload = Column(JSON, nullable=False)
+    idempotency_key = Column(String, unique=True, nullable=False)
+    sequence = Column(Integer, nullable=False, index=True)
+    sync_status = Column(String, nullable=False, default='PENDING', index=True)
+    retry_count = Column(Integer, nullable=False, default=0)
+    last_error = Column(String)
+    result = Column(String)
+    created_at = Column(String, nullable=False, default=now)
+    synced_at = Column(String)
+
+
+class DegradedOperationReceipt(Base):
+    """PostgreSQL receipt proving an operation has been replayed exactly once."""
+    __tablename__ = 'degraded_operation_receipts'
+    idempotency_key = Column(String, primary_key=True)
+    event_id = Column(String, nullable=False)
+    applied_at = Column(String, nullable=False, default=now)

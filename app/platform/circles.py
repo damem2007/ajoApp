@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import select
 from .models import Account, Circle, Participant, Invitation, Contract, Signature, Due, Bank, IdentityCase
-from .schemas import PolicyInput, CircleInput, CircleSetupResponse, InviteInput, JoinInput, FinalizeInput, SignInput, Reason
+from .schemas import PolicyInput, CircleInput, CircleSetupResponse, PlanPreview, InviteInput, JoinInput, FinalizeInput, SignInput, Reason
 from .security import secret, digest, canonical
 from .calendar import schedule
 from .contracts import render_contract
@@ -79,7 +79,7 @@ def routes(ctx):
         except ValueError as exc: fail(str(exc),422)
         return config,planned
 
-    @router.post('/circles/preview')
+    @router.post('/circles/preview', response_model=PlanPreview)
     def preview_plan(body:CircleInput,db=Depends(dbdep),user=Depends(ctx.actor)):
         validate_circle_setup(db,body)
         if body.contribution_minor is None: fail('Enter a fixed contribution amount',422)
@@ -90,7 +90,7 @@ def routes(ctx):
                 'planned_members':body.planned_members}
 
     @router.post('/circles',status_code=201)
-    def create(body:CircleInput,db=Depends(dbdep),user=Depends(ctx.actor)):
+    def create(body:CircleInput,request:Request,db=Depends(dbdep),user=Depends(ctx.actor)):
         validate_circle_setup(db,body)
         eligible(user);check_cap(db,user)
         if body.contribution_minor is not None: fixed_plan(body)
@@ -98,7 +98,16 @@ def routes(ctx):
         validate_circle_setup(db,body)
         if body.start_date<date.today(): fail('Start date cannot be in the past',422)
         seed=secret()
-        c=Circle(creator_id=user.id,name=body.name,config=body.model_dump(mode='json'),seed=ctx.vault.seal(seed),commitment=digest(seed))
+        test_run_id=request.headers.get('x-ajo-test-run-id','').strip() or None
+        if test_run_id:
+            from uuid import UUID
+            from app.config import app_environment
+            try: UUID(test_run_id)
+            except ValueError: fail('X-Ajo-Test-Run-Id must be a UUID',422)
+            if app_environment() not in {'development','test'} or not user.is_test_account or user.test_run_id!=test_run_id:
+                fail('Test-data tagging is restricted to the matching test account in development/test',403)
+        c=Circle(creator_id=user.id,name=body.name,config=body.model_dump(mode='json'),seed=ctx.vault.seal(seed),commitment=digest(seed),
+                 source='test_cli' if test_run_id else 'app',is_test_data=bool(test_run_id),test_run_id=test_run_id)
         db.add(c);db.flush();db.add(Participant(circle_id=c.id,user_id=user.id));db.flush()
         audit(db,user,c.id,'created')
         return circle_view(db,c,user)

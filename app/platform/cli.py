@@ -12,19 +12,19 @@ from .services import seed_policy,audit
 from .application import create_platform
 from .payments import run_due,dispatch_notices
 from .outbox import RedisPublisher, dispatch_pending
-from .scheduler import enqueue_due_scan
+from .scheduler import enqueue_due_scan, enqueue_reconciliation_scan
 from .workers import worker_loop
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('command',choices=['init-admin','seed-demo','worker','outbox-dispatcher','payment-worker','notification-worker','scheduler','sync-init','sync-status','sync-retry'])
+    parser.add_argument('command',choices=['init-admin','worker','outbox-dispatcher','payment-worker','notification-worker','reconciliation-worker','scheduler','sync-init','sync-status','sync-retry'])
     parser.add_argument('--email')
     parser.add_argument('--phone')
     parser.add_argument('--once',action='store_true')
     args=parser.parse_args()
     app=create_platform();ctx=app.state.ctx
     if not ctx.vault: parser.error('Configure AJO_KEY_FILE first')
-    if args.command in {'init-admin','seed-demo'}:
+    if args.command=='init-admin':
         with contextmanager(ctx.session)() as db: seed_policy(db,False)
     if args.command=='outbox-dispatcher':
         publisher=RedisPublisher(redis_url())
@@ -44,9 +44,10 @@ def main():
         finally:
             publisher.close()
         return
-    if args.command in {'payment-worker','notification-worker'}:
-        worker='payment' if args.command=='payment-worker' else 'notification'
-        ctx.ensure_configured('payments' if worker=='payment' else 'notifications')
+    if args.command in {'payment-worker','notification-worker','reconciliation-worker'}:
+        worker={'payment-worker':'payment','notification-worker':'notification','reconciliation-worker':'reconciliation'}[args.command]
+        if worker=='payment': ctx.ensure_configured('payments')
+        if worker=='notification': ctx.ensure_configured('notifications')
         worker_loop(ctx,worker,redis_url(),once=args.once)
         return
     if args.command=='scheduler':
@@ -54,7 +55,7 @@ def main():
         while True:
             gen=ctx.session();db=next(gen)
             try:
-                count=enqueue_due_scan(db)
+                count=enqueue_due_scan(db)+enqueue_reconciliation_scan(db)
                 try: next(gen)
                 except StopIteration: pass
                 print({'scheduled':count},flush=True)
@@ -65,24 +66,11 @@ def main():
         return
     if args.command=='sync-status':
         if not ctx.router: parser.error('Database resilience is not enabled')
-        from .models import SyncBatch, SyncControl
-        for name,engine in [('postgres',ctx.engine),('sqlite',ctx.router.secondary)]:
-            try:
-                with Session(engine) as db:
-                    mirror=db.get(SyncControl,'mirror')
-                    print(name,'mirror:',mirror.state if mirror else 'authoritative_primary' if name=='postgres' else 'not_initialized')
-                    for batch in db.scalars(select(SyncBatch).where(SyncBatch.status!='synced').order_by(SyncBatch.sequence)):
-                        print(batch.id,batch.sequence,batch.status,batch.attempts,batch.error_code)
-            except Exception: print(name,'unavailable')
+        print(ctx.router.status())
         return
     if args.command=='sync-retry':
         if not ctx.router: parser.error('Database resilience is not enabled')
-        with ctx.router.lock,ctx.router.process_lock():
-            ctx.router.replay(ctx.router.secondary,ctx.engine)
-            ctx.router.replay(ctx.engine,ctx.router.secondary)
-            ctx.router.verify_mirror()
-            ctx.router.control('ready')
-        print('Pending synchronization replayed')
+        print({'results':ctx.router.reconcile_pending()})
         return
     if args.command=='sync-init':
         if not ctx.router: parser.error('Enable AJO_DATABASE_RESILIENCE with PostgreSQL and a configured fallback URL first')
@@ -109,24 +97,6 @@ def main():
                 gen.close();raise
             if args.once: break
             time.sleep(interval)
-        return
-    if args.command=='seed-demo':
-        ctx.require_sandbox();password=secret()
-        with contextmanager(ctx.session)() as db:
-            for i,(name,role) in enumerate([('Amber Heron','member'),('Cedar Finch','member'),('Indigo Fox','member'),('Platform Admin','admin')]):
-                email=f'{["amber","cedar","indigo","admin"][i]}@ajo.test'
-                if db.scalar(select(Account.id).where(Account.email==email)): continue
-                u=Account(email=email,phone=f'+1555555000{i}',password=password_hash(password),email_verified=True,
-                          phone_verified=True,kyc_status='Approved',pseudonym=name,role=role)
-                db.add(u);db.flush();token='sandbox-ok-'+u.id
-                db.add(Bank(user_id=u.id,token_hash=ctx.vault.fingerprint(token),encrypted_token=ctx.vault.seal(token),
-                            masked='•••• 000'+str(i),status='Verified',mandate=True))
-                if role!='member':
-                    from .rbac import assign
-                    assign(db,u,role,u)
-                audit(db,'local-cli',u.id,'sandbox_fixture_created')
-                print('Created:',email)
-        print('Password for newly created sandbox accounts:',password)
         return
     if not args.email or not args.phone: parser.error('--email and --phone are required')
     password=getpass.getpass('New administrator password (12+ characters): ')

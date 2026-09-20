@@ -3,6 +3,8 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from .models import Due, Circle, Contract, Bank, Posting, PaymentEvent, Account, Participant, Notice
 from .services import get,rows,policy,balances,trust,notify,audit,transition,participants,fail
+from .ledger import post_payment_result
+from .payment_orchestration import PaymentOrchestrationService
 
 def event(db,due,key,status,detail):
     if db.scalar(select(PaymentEvent.id).where(PaymentEvent.key==key)): return False
@@ -20,12 +22,8 @@ def apply_result(db,due,status,key,detail,actor='worker'):
     if status in ['Settled','Failed'] and due.status not in ['Pending','Processing']: fail('Only submitted payments can settle or fail')
     c=get(db,Circle,due.circle_id)
     if status in ['Settled','Reversed']:
-        account={'contribution':'member_contributions','payout':'member_payouts','fee':'fee_income'}[due.kind]
-        cash='fees_cash' if due.kind=='fee' else 'pool'
-        sign=-1 if due.kind=='payout' else 1
-        if status=='Reversed': sign*=-1
-        for name,amount in [(cash,sign*due.amount_minor),(account,-sign*due.amount_minor)]:
-            db.add(Posting(circle_id=c.id,due_id=due.id,user_id=due.user_id,event_key=key,account=name,amount_minor=amount))
+        post_payment_result(db,circle_id=c.id,due_id=due.id,user_id=due.user_id,kind=due.kind,
+                            event_key=key,amount_minor=due.amount_minor,reversed=status=='Reversed')
     event(db,due,key,status,detail);due.status=status
     audit(db,actor,due.id,'payment_'+status.lower(),circle_id=c.id)
     notify(db,due.user_id,key,f'{due.kind.title()} {status.lower()}',f'{c.config["currency"]} {due.amount_minor} minor units. {detail}')
@@ -75,8 +73,9 @@ def run_due(db,ctx,as_of=None):
         d.status='Processing';d.attempts+=1
         key=f'payment:{d.id}:attempt:{d.attempts}'
         event(db,d,key,'Attempted','Provider execution requested')
-        result=ctx.payments.execute(key=key,amount_minor=d.amount_minor,currency=c.config['currency'],kind=d.kind,
-                                    bank_token=ctx.vault.open(bank.encrypted_token))
+        result=PaymentOrchestrationService(ctx).initiate(
+            key=key,amount_minor=d.amount_minor,currency=c.config['currency'],kind=d.kind,
+            bank_token=ctx.vault.open(bank.encrypted_token))
         d.provider_ref=result.reference
         apply_result(db,d,result.status,key+':result',result.detail)
         if result.status=='Failed': d.next_attempt=(as_of+timedelta(days=p['retry_days']*2**(d.attempts-1))).isoformat()

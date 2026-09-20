@@ -28,3 +28,5 @@ ajo-data/
 
 # OS
 .DS_Store
+# Explicit local test-data manifests
+.ajo-test-runs/

@@ -27,3 +27,16 @@ def enqueue_due_scan(db, as_of: date | None = None) -> int:
         payload={'as_of': as_of.isoformat()},
     )
     return 1
+
+
+def enqueue_reconciliation_scan(db, *, bucket=None) -> int:
+    bucket=bucket or datetime.now(timezone.utc).strftime('%Y%m%d%H')
+    emit(
+        db,
+        event_type='reconciliation.scan',
+        aggregate_type='system',
+        aggregate_id='database-and-provider-state',
+        idempotency_key=f'reconciliation-scan:{bucket}',
+        payload={'scheduled_at':datetime.now(timezone.utc).isoformat()},
+    )
+    return 1

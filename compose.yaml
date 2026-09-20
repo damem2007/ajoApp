@@ -92,6 +92,19 @@ services:
       redis:
         condition: service_healthy
 
+  reconciliation-worker:
+    build: .
+    env_file: .env
+    environment: *backend-env
+    volumes:
+      - ajo-secrets:/data/secrets
+    command: ["python", "-m", "app.platform.cli", "reconciliation-worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
   scheduler:
     build: .
     env_file: .env

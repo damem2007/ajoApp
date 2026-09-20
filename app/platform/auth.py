@@ -4,7 +4,7 @@ import secrets
 import time
 from datetime import date
 from typing import Optional
-from app.config import setting
+from app.config import setting, app_environment
 from fastapi import APIRouter, Depends, Request, UploadFile, File, Query, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import select, delete
@@ -52,7 +52,15 @@ def routes(ctx):
             return JSONResponse({'detail':'Registration rate limit exceeded'},status_code=429)
         if db.scalar(select(Account).where((Account.email==body.email.lower())|(Account.phone==body.phone))):
             return JSONResponse({'detail':'Account already exists'},status_code=409)
-        user=Account(email=body.email.lower(),phone=body.phone,password=password_hash(body.password))
+        test_run_id=request.headers.get('x-ajo-test-run-id','').strip() or None
+        if test_run_id:
+            from uuid import UUID
+            try: UUID(test_run_id)
+            except ValueError: fail('X-Ajo-Test-Run-Id must be a UUID',422)
+            if app_environment() not in {'development','test'}: fail('Test-data tagging is disabled in production',403)
+        user=Account(email=body.email.lower(),phone=body.phone,password=password_hash(body.password),
+                     source='test_cli' if test_run_id else 'app',
+                     is_test_account=bool(test_run_id),test_run_id=test_run_id)
         db.add(user);db.flush()
         for channel in ['email','sms']: challenge(db,user,channel)
         audit(db,user,user.id,'registered')

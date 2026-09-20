@@ -14,6 +14,7 @@ from .models import OutboxEvent, now
 QUEUE_BY_PREFIX = {
     'payment.': 'ajo:payments',
     'notification.': 'ajo:notifications',
+    'reconciliation.': 'ajo:reconciliation',
 }
 
 

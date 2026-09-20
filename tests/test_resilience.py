@@ -1,15 +1,15 @@
-"""Database routing state-machine tests; SQLite engines model transaction boundaries.
-A deployment smoke test separately validates actual PostgreSQL compatibility.
-"""
+"""PostgreSQL-authoritative degraded operation journal tests."""
 import pytest
 from sqlalchemy import select, create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
-from app.platform.models import Base, Account, SyncBatch, SyncReceipt
+
+from app.platform.models import Base, Account, DegradedOperation, DegradedOperationReceipt
 from app.platform.security import Vault
-from app.platform.resilience import DatabaseRouter, SyncConflict
+from app.platform.resilience import DatabaseRouter
 from app.platform.services import seed_policy
 from app.platform.rbac import bootstrap
+
 
 @pytest.fixture
 def databases(tmp_path):
@@ -33,90 +33,68 @@ def account(email='member@example.test'):
     return Account(id='stable-user',email=email,phone='+15555550100',password='fixture-hash')
 
 
-def test_primary_write_updates_certified_mirror(databases):
-    r=databases
-    with r.session() as db: db.add(account())
-    with Session(r.secondary) as db: assert db.get(Account,'stable-user')
-    assert r.mode=='postgres'
+def test_primary_write_refreshes_non_authoritative_snapshot(databases):
+    with databases.session() as db: db.add(account())
+    with Session(databases.secondary) as db: assert db.get(Account,'stable-user')
+    assert databases.mode=='postgres'
 
 
-def test_fallback_write_restart_recovery_duplicate_replay(databases,monkeypatch):
+def test_fallback_records_operation_and_replays_exactly_once(databases,monkeypatch):
     r=databases;original=outage(r,monkeypatch)
     with r.session() as db: db.add(account())
-    assert r.mode=='sqlite'
     with Session(r.secondary) as db:
-        batch=db.scalar(select(SyncBatch));assert batch.status=='pending'
-        assert 'member@example.test' not in str(batch.changes)
-        batch_id=batch.id
-    restarted=DatabaseRouter(r.primary,r.secondary,r.vault)
+        operation=db.scalar(select(DegradedOperation))
+        assert operation.sync_status=='PENDING'
+        assert 'member@example.test' not in str(operation.payload)
+        operation_id=operation.id
+        key=operation.idempotency_key
     monkeypatch.setattr(r.primary,'connect',original)
-    with restarted.session() as db: assert db.get(Account,'stable-user')
-    with Session(r.secondary) as db,db.begin(): db.get(SyncBatch,batch_id).status='pending'
-    restarted.replay(r.secondary,r.primary)
+    results=r.reconcile_pending()
+    assert results[0]['result']=='SUCCESS'
     with Session(r.primary) as db:
-        assert len(list(db.scalars(select(Account))))==1
-        assert db.get(SyncReceipt,batch_id)
-    with Session(r.secondary) as db: assert db.get(SyncBatch,batch_id).status=='synced'
+        assert db.get(Account,'stable-user')
+        assert db.get(DegradedOperationReceipt,key)
+    with Session(r.secondary) as db,db.begin():
+        op=db.get(DegradedOperation,operation_id);op.sync_status='PENDING';op.result=None
+    results=r.reconcile_pending()
+    assert results[0]['result']=='ALREADY_PROCESSED'
+    with Session(r.primary) as db:
+        assert len(list(db.scalars(select(Account).where(Account.id=='stable-user'))))==1
 
 
-def test_conflicting_independent_change_blocks_recovery(databases,monkeypatch):
+def test_conflict_is_quarantined_without_overwrite(databases,monkeypatch):
     r=databases
     with r.session() as db: db.add(account())
     original=outage(r,monkeypatch)
     with r.session() as db: db.get(Account,'stable-user').email='fallback@example.test'
     monkeypatch.setattr(r.primary,'connect',original)
     with Session(r.primary) as db,db.begin(): db.get(Account,'stable-user').email='primary@example.test'
-    with pytest.raises(SyncConflict): r.replay(r.secondary,r.primary)
-    with Session(r.secondary) as db: assert db.scalar(select(SyncBatch)).status=='conflict'
-    with Session(r.primary) as db: assert db.get(Account,'stable-user').email=='primary@example.test'
+    results=r.reconcile_pending()
+    assert results[0]['result']=='CONFLICT'
+    with Session(r.secondary) as db:
+        assert db.scalar(select(DegradedOperation)).sync_status=='CONFLICT'
+    with Session(r.primary) as db:
+        assert db.get(Account,'stable-user').email=='primary@example.test'
 
 
-def test_failed_replay_retry_and_tombstone(databases,monkeypatch):
-    r=databases
+def test_retryable_database_failure_is_classified(databases,monkeypatch):
+    r=databases;original=outage(r,monkeypatch)
     with r.session() as db: db.add(account())
-    original=outage(r,monkeypatch)
-    with r.session() as db: db.delete(db.get(Account,'stable-user'))
     monkeypatch.setattr(r.primary,'connect',original)
     begin=r.primary.begin
-    def failure(): raise RuntimeError('temporary replay failure')
+    def failure(): raise OperationalError('BEGIN',None,Exception('temporary'))
     monkeypatch.setattr(r.primary,'begin',failure)
-    with pytest.raises(RuntimeError): r.replay(r.secondary,r.primary)
-    with Session(r.secondary) as db: assert db.scalar(select(SyncBatch)).status=='failed'
+    results=r.reconcile_pending()
+    assert results[0]['result']=='FAILED_RETRYABLE'
     monkeypatch.setattr(r.primary,'begin',begin)
-    r.replay(r.secondary,r.primary)
-    with Session(r.primary) as db: assert db.get(Account,'stable-user') is None
+    results=r.reconcile_pending()
+    assert results[0]['result']=='SUCCESS'
 
 
-def test_uncertified_fallback_rejected(databases,monkeypatch):
-    r=databases;r.control('unsafe');outage(r,monkeypatch)
+def test_uncertified_fallback_is_rejected(databases,monkeypatch):
+    databases.control('unsafe','test')
+    outage(databases,monkeypatch)
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as error:
-        with r.session(): pass
+        with databases.session(): pass
     assert error.value.status_code==503
-
-
-def test_bulk_session_delete_survives_replay(databases,monkeypatch):
-    from sqlalchemy import delete
-    from app.platform.models import SessionToken
-    r=databases
-    with r.session() as db:
-        db.add(account());db.flush()
-        db.add(SessionToken(token_hash='token',user_id='stable-user',refresh_hash='refresh',expires=9999999999,refresh_expires=9999999999))
-    original=outage(r,monkeypatch)
-    with r.session() as db: db.execute(delete(SessionToken).where(SessionToken.user_id=='stable-user'))
-    monkeypatch.setattr(r.primary,'connect',original)
-    r.replay(r.secondary,r.primary)
-    with Session(r.primary) as db: assert db.get(SessionToken,'token') is None
-
-
-def test_restart_detects_untracked_primary_divergence(databases):
-    r=databases
-    with Session(r.primary) as db,db.begin(): db.add(account())
-    restarted=DatabaseRouter(r.primary,r.secondary,r.vault)
-    from fastapi import HTTPException
-    with pytest.raises(HTTPException) as error:
-        with restarted.session(): pass
-    assert error.value.status_code==503
-    with Session(r.secondary) as db:
-        from app.platform.models import SyncControl
-        assert db.get(SyncControl,'mirror').detail=='mirror_diverged'

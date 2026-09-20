@@ -113,3 +113,10 @@ def resilience_enabled():
 
 def redis_url():
     return setting('AJO_REDIS_URL', 'REDIS_URL')
+
+
+def app_environment():
+    value = (setting('APP_ENV', required=False) or 'development').lower()
+    if value not in {'development', 'test', 'production'}:
+        raise ConfigurationError('APP_ENV must be development, test or production.')
+    return value
