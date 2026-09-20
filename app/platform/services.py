@@ -41,8 +41,20 @@ def notify(db, user_id, key, title, body, channels=None):
         if channels is None and channel not in ('in-app',) and user.preferences.get(channel,True) is False: continue
         unique = f'{key}:{user_id}:{channel}'
         if db.scalar(select(Notice.id).where(Notice.key==unique)): continue
-        db.add(Notice(user_id=user_id,key=unique,channel=channel,title=title,body=body,
-                      status='Delivered' if channel=='in-app' else 'Queued'))
+        notice=Notice(user_id=user_id,key=unique,channel=channel,title=title,body=body,
+                      status='Delivered' if channel=='in-app' else 'Queued')
+        db.add(notice)
+        db.flush()
+        if channel!='in-app':
+            from .outbox import emit
+            emit(
+                db,
+                event_type='notification.dispatch',
+                aggregate_type='notice',
+                aggregate_id=notice.id,
+                idempotency_key='notification:'+notice.id,
+                payload={'notice_id': notice.id},
+            )
     db.flush()
 
 def participants(db,cid):
