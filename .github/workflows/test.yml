@@ -21,7 +21,7 @@ jobs:
       AJO_API_HOST: 127.0.0.1
       AJO_API_PORT: "9020"
       AJO_WORKER_INTERVAL_SECONDS: "1"
-      AJO_REDIS_URL: redis://localhost:6379/0
+      AJO_REDIS_URL: redis://localhost:6379/0\n      THROTTLE_LIMIT: "5"\n      THROTTLE_WINDOW: "300"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
