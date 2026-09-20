@@ -90,6 +90,7 @@ def main():
         print('SQLite fallback initialized and certified')
         return
     if args.command=='worker':
+        ctx.require_sandbox()
         ctx.ensure_configured('payments');ctx.ensure_configured('notifications')
         interval = worker_interval_seconds() if not args.once else None
         while True:

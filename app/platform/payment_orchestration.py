@@ -40,19 +40,51 @@ class PaymentOrchestrationService:
         return self.ctx.payments.cancel_transfer(reference=reference,key=key)
 
 
-def reconcile_pending_payments(db, ctx):
-    """Reconcile provider-side state for locally Pending payment attempts."""
+def reconcile_pending_payments(ctx):
+    """Query provider state without holding an application DB transaction open."""
+    from contextlib import contextmanager
+    from datetime import date, timedelta
     from sqlalchemy import select
-    from .models import Due, Circle
+    from .models import Due, Circle, Contract
     from .payments import apply_result, complete
 
+    @contextmanager
+    def scope():
+        gen=ctx.session();db=next(gen)
+        try:
+            yield db
+        except Exception:
+            gen.close();raise
+        else:
+            try: next(gen)
+            except StopIteration: pass
+
+    with scope() as db:
+        pending=[(d.id,d.provider_ref) for d in db.scalars(
+            select(Due).where(Due.status=='Pending',Due.provider_ref.is_not(None)).limit(100)
+        )]
+
     service=PaymentOrchestrationService(ctx)
-    checked=updated=0
-    for due in db.scalars(select(Due).where(Due.status=='Pending',Due.provider_ref.is_not(None)).limit(100)):
+    checked=updated=failed=0
+    for due_id,reference in pending:
         checked+=1
-        result=service.status(due.provider_ref)
-        if result.status in {'Settled','Failed','Reversed'}:
+        try:
+            result=service.status(reference)
+        except Exception:
+            failed+=1
+            log.warning('provider reconciliation failed due_id=%s provider_reference=%s',due_id,reference)
+            continue
+        if result.status not in {'Settled','Failed','Reversed'}:
+            continue
+        with scope() as db:
+            due=db.get(Due,due_id)
+            if not due or due.status!='Pending':
+                continue
             apply_result(db,due,result.status,'provider-reconcile:'+due.id+':'+result.reference,result.detail)
+            if result.status=='Failed':
+                circle=db.get(Circle,due.circle_id)
+                p=db.get(Contract,circle.contract_id).content['policy']
+                due.next_attempt=(date.today()+timedelta(days=p['retry_days']*2**max(0,due.attempts-1))).isoformat()
             complete(db,db.get(Circle,due.circle_id))
             updated+=1
-    return {'checked':checked,'updated':updated}
+    return {'checked':checked,'updated':updated,'failed':failed}

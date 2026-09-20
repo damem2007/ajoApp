@@ -5,6 +5,7 @@ from .models import Due, Circle, Contract, Bank, Posting, PaymentEvent, Account,
 from .services import get,rows,policy,balances,trust,notify,audit,transition,participants,fail
 from .ledger import post_payment_result
 from .payment_orchestration import PaymentOrchestrationService
+from .outbox import emit
 
 def event(db,due,key,status,detail):
     if db.scalar(select(PaymentEvent.id).where(PaymentEvent.key==key)): return False
@@ -37,7 +38,70 @@ def complete(db,circle):
         for m in participants(db,circle.id):
             if m.status!='Delinquent': trust(db,m.user_id,p['completion_points'],'completed:'+circle.id+':'+m.user_id,'Completed rotation',circle.id)
 
+def enqueue_due(db,ctx,as_of=None):
+    """Persist payment execution intentions without calling a provider.
+
+    This runs inside the payment.scan worker transaction. Each eligible Due is
+    moved to Processing and receives a durable payment.execute outbox event.
+    """
+    as_of=as_of or date.today()
+    if policy(db).data['scheduler_paused']: return {'paused':True,'queued':0}
+    queued=0
+    dues=list(db.scalars(select(Due).where(Due.date<=as_of.isoformat()).order_by(Due.date,Due.kind,Due.id)))
+    dues.sort(key=lambda d:(d.kind=='payout',d.date,d.window,d.id))
+    for d in dues:
+        c=get(db,Circle,d.circle_id)
+        if c.state not in ['Active','Cycling'] or d.status not in ['Scheduled','Failed']: continue
+        p=get(db,Contract,c.contract_id).content['policy']
+        if d.next_attempt and d.next_attempt>as_of.isoformat(): continue
+        if d.attempts>=p['retries']+1:
+            if d.kind=='contribution':
+                m=db.scalar(select(Participant).where(Participant.circle_id==c.id,Participant.user_id==d.user_id))
+                m.status='Delinquent'
+                trust(db,d.user_id,-p['default_penalty'],'default:'+d.id,'Contribution retry policy exhausted',c.id)
+                if as_of>=date.fromisoformat(d.date)+timedelta(days=p['grace_days']):
+                    transition(db,c,'Disputed','worker','Missed contribution after grace period')
+            continue
+        if get(db,Account,d.user_id).suspended: continue
+        if d.kind=='payout':
+            pending=rows(db,Due,Due.circle_id==c.id,Due.kind=='payout',Due.status.in_(['Pending','Processing']))
+            earlier=rows(db,Due,Due.circle_id==c.id,Due.kind=='payout',Due.window<d.window,Due.status!='Settled')
+            eligible_ids={x.id for x in rows(db,Due,Due.circle_id==c.id,Due.window<=d.window)}
+            window_pool=sum(x.amount_minor for x in rows(db,Posting,Posting.circle_id==c.id,Posting.account=='pool') if x.due_id in eligible_ids)
+            available=min(window_pool,balances(db,c.id).get('pool',0))-sum(x.amount_minor for x in pending)
+            if earlier or available<d.amount_minor:
+                notify(db,d.user_id,'shortfall:'+d.id,'Payout held','Awaiting sufficient settled funds or earlier payouts')
+                continue
+            member=db.scalar(select(Participant).where(Participant.circle_id==c.id,Participant.user_id==d.user_id))
+            if member.status=='Delinquent': continue
+        bank=db.scalar(select(Bank).where(Bank.user_id==d.user_id,Bank.status=='Verified',Bank.mandate==True).order_by(Bank.id))
+        if not bank: continue
+
+        d.status='Processing';d.attempts+=1
+        key=f'payment:{d.id}:attempt:{d.attempts}'
+        event(db,d,key,'Attempted','Provider execution queued')
+        emit(
+            db,
+            event_type='payment.execute',
+            aggregate_type='due',
+            aggregate_id=d.id,
+            idempotency_key='execute:'+key,
+            payload={'due_id':d.id,'attempt':d.attempts,'payment_key':key,'as_of':as_of.isoformat()},
+        )
+        if c.state=='Active': transition(db,c,'Cycling','worker','Scheduled money movement queued')
+        queued+=1
+
+    for d in rows(db,Due,Due.status=='Scheduled'):
+        days=(date.fromisoformat(d.date)-as_of).days
+        if days in [0,3]:
+            notify(db,d.user_id,f'reminder:{d.id}:{days}','Upcoming '+d.kind,f'Due {d.date}: {d.amount_minor} minor units')
+    return {'paused':False,'queued':queued}
+
+
 def run_due(db,ctx,as_of=None):
+    """Sandbox-only inline execution retained for explicit local/manual test ticks."""
+    if not ctx.sandbox:
+        raise RuntimeError('Inline payment execution is disabled outside sandbox; use payment workers')
     as_of=as_of or date.today()
     if policy(db).data['scheduler_paused']: return {'paused':True,'processed':0}
     processed=0

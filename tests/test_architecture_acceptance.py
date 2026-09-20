@@ -52,3 +52,26 @@ def test_degraded_mode_never_executes_external_payment_provider(tmp_path,monkeyp
         PaymentOrchestrationService(Ctx()).initiate(
             key='degraded-payment',amount_minor=100,currency='CAD',
             kind='contribution',bank_token='sandbox-ok-bank')
+
+
+def test_payment_scan_creates_durable_execution_intent_without_provider_call(client):
+    from datetime import date, timedelta
+    from sqlalchemy.orm import Session
+    from app.platform.payments import enqueue_due
+    from app.platform.models import OutboxEvent, Due
+    from tests.test_full_platform import activate
+
+    cid,_=activate(client)
+    class ExplodingProvider:
+        def initiate_transfer(self,*args,**kwargs):
+            raise AssertionError('provider must not be called during scan transaction')
+    original=client.app.state.ctx.payments
+    client.app.state.ctx.payments=ExplodingProvider()
+    try:
+        with Session(client.app.state.ctx.engine) as db,db.begin():
+            result=enqueue_due(db,client.app.state.ctx,date.today()+timedelta(days=40))
+            assert result['queued']>0
+            assert list(db.scalars(select(OutboxEvent).where(OutboxEvent.event_type=='payment.execute')))
+            assert list(db.scalars(select(Due).where(Due.circle_id==cid,Due.status=='Processing')))
+    finally:
+        client.app.state.ctx.payments=original

@@ -84,23 +84,25 @@ def test_domain_and_outbox_commit_are_atomic():
         assert db.scalar(select(func.count()).select_from(OutboxEvent))==0
 
 
-def test_worker_receipt_prevents_duplicate_handler_execution():
-    from app.platform.workers import process_event
+def test_worker_receipt_prevents_duplicate_scan_execution():
+    from app.platform.workers import process_scan_event
+    from app.platform.services import seed_policy
     class Context: pass
     engine=create_engine('sqlite:///:memory:')
     Base.metadata.create_all(engine)
     with Session(engine) as db,db.begin():
+        seed_policy(db,True)
         event=emit(
             db,
-            event_type='notification.dispatch',
-            aggregate_type='notice',
-            aggregate_id='missing-notice',
+            event_type='payment.scan',
+            aggregate_type='payment_schedule',
+            aggregate_id=date.today().isoformat(),
             idempotency_key='worker:idempotency',
-            payload={'notice_id':'missing-notice'},
+            payload={'as_of':date.today().isoformat()},
         )
         event_id=event.id
     with Session(engine) as db,db.begin():
-        assert process_event(db,Context(),event_id,'notification')=='processed'
+        assert process_scan_event(db,Context(),event_id)=='processed'
     with Session(engine) as db,db.begin():
-        assert process_event(db,Context(),event_id,'notification')=='already_processed'
+        assert process_scan_event(db,Context(),event_id)=='already_processed'
         assert db.scalar(select(func.count()).select_from(WorkerReceipt))==1

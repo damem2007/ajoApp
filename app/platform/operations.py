@@ -13,6 +13,7 @@ from .schemas import Input,Reason,ReviewInput,ComplaintInput,ResolutionInput,Pol
 from .services import (get,rows,fail,policy,audit,notify,trust,transition,require_member,participants,cap,
                        account_view,circle_view,balances,obligation)
 from .payments import run_due,dispatch_notices,apply_result,complete
+from .scheduler import enqueue_due_scan
 from .security import secret,digest
 
 def routes(ctx):
@@ -224,10 +225,15 @@ def routes(ctx):
 
     class Tick(Input): as_of:Optional[date]=None
     @router.post('/admin/jobs/run')
-    def tick(body:Tick,db=Depends(dbdep),user=Depends(ops)):
+    def tick(body:Tick,response:Response,db=Depends(dbdep),user=Depends(ops)):
         ctx.ensure_configured("payments");ctx.ensure_configured("notifications")
         if body.as_of and body.as_of!=date.today(): ctx.require_sandbox("payments")
-        result=run_due(db,ctx,body.as_of);result['notifications_dispatched']=dispatch_notices(db,ctx)
+        if ctx.sandbox:
+            result=run_due(db,ctx,body.as_of);result['notifications_dispatched']=dispatch_notices(db,ctx)
+        else:
+            queued=enqueue_due_scan(db,body.as_of)
+            response.status_code=202
+            result={'accepted':True,'queued_scans':queued}
         audit(db,user,'scheduler','manual_tick',as_of=str(body.as_of or date.today()))
         return result
 
