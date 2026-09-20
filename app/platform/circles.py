@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import select
 from .models import Account, Circle, Participant, Invitation, Contract, Signature, Due, Bank, IdentityCase
-from .schemas import PolicyInput, CircleInput, InviteInput, JoinInput, FinalizeInput, SignInput, Reason
+from .schemas import PolicyInput, CircleInput, CircleSetupResponse, InviteInput, JoinInput, FinalizeInput, SignInput, Reason
 from .security import secret, digest, canonical
 from .calendar import schedule
 from .contracts import render_contract
@@ -19,9 +19,8 @@ def routes(ctx):
     router=APIRouter(prefix='/api/v1',tags=['Circles and contracts'])
     dbdep=ctx.session
 
-    @router.get("/public/circle-setup")
+    @router.get("/public/circle-setup", response_model=CircleSetupResponse)
     def setup(db=Depends(dbdep)):
-        print(f"circle_setup: {circle_setup(db)}")
         return circle_setup(db)
 
     def contract_access(db,con,user):
