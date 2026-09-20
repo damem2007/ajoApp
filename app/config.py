@@ -109,3 +109,14 @@ def resilience_enabled():
     if value not in {'true', 'false'}:
         raise ConfigurationError('AJO_DATABASE_RESILIENCE must be true or false.')
     return value == 'true'
+
+
+def redis_url():
+    return setting('AJO_REDIS_URL', 'REDIS_URL')
+
+
+def scheduler_interval_seconds():
+    value = setting('AJO_SCHEDULER_INTERVAL_SECONDS', required=False) or '30'
+    if not value.isdigit() or int(value) < 1:
+        raise ConfigurationError('AJO_SCHEDULER_INTERVAL_SECONDS must be a positive integer.')
+    return int(value)
