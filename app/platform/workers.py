@@ -71,6 +71,12 @@ def worker_loop(ctx,worker,redis_url,*,once=False):
     consumer=RedisConsumer(redis_url)
     try:
         while True:
+            if ctx.router and not ctx.router.primary_available():
+                # Never consume payment/notification queue items or call external
+                # providers from the non-authoritative SQLite degraded store.
+                if once: return
+                time.sleep(2)
+                continue
             # Recovery cannot enter the normal routed session while PostgreSQL has
             # returned but SQLite journal work is still pending. Reconcile the
             # journal first, outside ctx.session(), then process queue/provider work.

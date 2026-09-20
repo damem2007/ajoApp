@@ -1,29 +1,172 @@
-# Application ownership and maintenance
+# AJo target architecture
 
-The supported client is Next.js React, under `frontend/src`. Every application screen is TSX, reached through App Router pages. FastAPI owns data, authorization, financial rules, contracts, jobs and versioned policies. It returns JSON, uploaded evidence, PDFs or exports. Website URLs on the API redirect to the configured frontend. FastAPI has no frontend static mount and no HTML template renderer.
+AJo remains a **FastAPI modular monolith**. The web client is a separate Next.js/TypeScript
+repository and a future Flutter client can consume the same REST/OpenAPI contract. No Kubernetes,
+microservices, GraphQL, service mesh, Kafka, distributed transactions or generated HTTP SDK are
+part of this architecture.
 
-## Adding a feature
+## Runtime topology
 
-1. Define its request/response shape in `frontend/src/lib/types.ts`, or the domain's dedicated type file.
-2. Add a named resource function in `frontend/src/lib/api/<domain>.ts`. The shared transport owns bearer tokens, coordinated refresh, field errors, multipart uploads and document downloads. React components do not assemble deployment addresses.
-3. Implement its feature component under `frontend/src/components/<domain>/` and a small route page under `frontend/src/app/`. Member and staff layouts share session, notification and toast providers. The CMS belongs to `/backoffice/cms`.
-4. Add authoritative validation and authorization in the relevant `backend/app/platform` API/domain module. Keep money in integer minor units; freeze signed schedules and policy versions.
-5. Verify behavior in isolated sandbox API/browser fixtures. Do not use local database credentials in tests.
+```text
+Next.js / future Flutter
+          |
+       REST/JSON
+          |
+      FastAPI API
+          |
+       PostgreSQL  <---- canonical source of truth
+          |
+   transactional outbox
+          |
+        Redis
+      /   |    \
+ payment notification reconciliation
+ worker     worker       worker
+             ^
+             |
+          scheduler (enqueues durable work)
+```
 
-The public and member marketplaces share one catalogue component and API resource. Independent debit and payout calendars use contribution-first input and funding validation. Immutable historical contracts are never rewritten to match new defaults.
+The API, dispatcher, workers and scheduler use the same Python source and Docker image with
+different commands. They are process roles, not network microservices.
 
-## Assets and legacy references
+## Domain ownership
 
-`frontend/public/assets` contains styles, fonts, icons and the install manifest; it contains no handwritten UI JavaScript or HTML templates. Next.js compiles TS/TSX into browser JavaScript under `_next`. The browser service worker is generated from `frontend/src/workers/service-worker.ts` before dev/build and registered by `PwaRegistration.tsx`. It does not cache financial or identity data.
+FastAPI is authoritative for authentication/authorization, circles and membership, contribution
+and payout rules, payment orchestration, ledger postings, reconciliation, provider selection,
+financial state transitions, audit and backoffice/RBAC. The Next.js client owns presentation,
+forms, browser/session concerns and compile-time API usage. Do not duplicate financial/domain rules
+in Next.js or a future Dart client.
 
-`sandbox/legacy-ui` preserves the retired controllers, templates and old rendering source as reference only. They are excluded from production serving and container builds. The supported sandbox is the same native React UI against FastAPI synthetic providers. Original Python domain regression tests remain available.
+Existing modules are migrated incrementally rather than moved merely to match an aspirational
+folder tree. Dedicated `ledger.py`, `payment_orchestration.py`, provider contracts, outbox,
+workers and resilience boundaries provide the important separation without breaking stable imports.
 
-## Configuration
+## Providers and payment orchestration
 
-`backend/app/config.py` loads `backend/.env` from a stable path, validates deployment settings and preserves process-variable precedence. API, worker, persistence and Alembic all use it. There is no embedded database address. Missing required settings raise actionable errors without printing credentials. Paths for encryption keys resolve relative to that environment file.
+`PaymentProvider`, `IdentityProvider` and `NotificationProvider` are normalized contracts.
+Configuration selects registered adapters independently of database mode:
 
-`frontend/src/lib/backend-origin.ts` validates the configured upstream for both the proxy and server-rendered CMS content. Browser API calls stay same-origin. `client-config.ts` reads the public polling interval and page size. The frontend launcher loads `.env.local` before selecting its host/port. There is no embedded API origin or listening port in application source.
+```dotenv
+AJO_PAYMENTS_PROVIDER=sandbox
+AJO_IDENTITY_PROVIDER=sandbox
+AJO_NOTIFICATIONS_PROVIDER=sandbox
+```
 
-Only non-secret public preferences may have the `NEXT_PUBLIC_` prefix. Next.js embeds these values at build time; rebuild when they change. Server-only environment changes require restarting the server. Route paths, formatting rules and security/domain constraints are code contracts, not deployment addresses. Open business questions belong to versioned backoffice policies rather than unvalidated environment switches.
+`PaymentOrchestrationService` sits above payment providers. External financial calls use provider
+idempotency keys; reusing a key with a different request is rejected. Provider timeouts normalize to
+Pending so reconciliation can determine the terminal state before another financial attempt.
+External provider actions are not executed from degraded SQLite mode.
 
-See [configuration reference](CONFIGURATION.md). `compose.yaml` is the single deployment definition. Runtime and public build settings come from environment files. Docker execution has not been verified on this host.
+Ledger postings are append-oriented, balanced and idempotent by originating event key. Provider
+responses do not directly become balances.
+
+## Transactional outbox and workers
+
+Domain changes and their `OutboxEvent` are committed in the same transaction. Redis transports
+event IDs only; the database record is authoritative. Dispatch is at-least-once and
+`WorkerReceipt` makes worker handling idempotent.
+
+Runtime roles:
+
+```text
+api
+outbox-dispatcher
+payment-worker
+notification-worker
+reconciliation-worker
+scheduler
+postgres
+redis
+```
+
+The scheduler enqueues payment and reconciliation scans. It does not execute long-running provider
+work itself. Payment/notification workers do not consume work while PostgreSQL is unavailable.
+
+## PostgreSQL and SQLite degraded mode
+
+PostgreSQL is canonical. SQLite is **not** an equal database and there is no generic PostgreSQL <->
+SQLite active-active replication.
+
+`sync-init` creates a certified, non-authoritative SQLite snapshot. While PostgreSQL is healthy,
+normal reads/writes use PostgreSQL; successful primary changes may refresh that certified snapshot
+one-way so it is usable during an outage.
+
+When PostgreSQL is unavailable, safe application mutations may run against the certified snapshot
+only to preserve the local transaction. The same SQLite transaction writes an encrypted
+`DegradedOperation` journal record containing an event ID, operation/aggregate information,
+idempotency key, sequence, status, retry metadata and the deterministic before/after mutation
+payload. Risky external-provider actions are paused.
+
+When PostgreSQL returns, normal routed writes remain blocked until the reconciliation worker replays
+the SQLite journal **toward PostgreSQL only**. Reconciliation uses compare-before-write and a
+PostgreSQL `DegradedOperationReceipt` for exactly-once application. Results are classified as:
+
+```text
+SUCCESS
+ALREADY_PROCESSED
+CONFLICT
+INVALID
+FAILED_RETRYABLE
+FAILED_PERMANENT
+```
+
+CONFLICT/INVALID/FAILED_PERMANENT remain quarantined for review. There is no last-write-wins
+resolution. After a clean replay, SQLite is refreshed from PostgreSQL and becomes a certified
+non-authoritative snapshot again.
+
+Legacy `sync_batches` / `sync_receipts` tables remain only for non-destructive migration
+compatibility; the target degraded-mode path uses `degraded_operations` and
+`degraded_operation_receipts`.
+
+## API contract synchronization
+
+FastAPI/Pydantic is the API-contract source of truth. `scripts/export_openapi.py` exports
+`app.openapi()` deterministically. The separate frontend repository uses `openapi-typescript` to
+generate committed type-only definitions in `src/generated/api-types.ts`.
+
+The frontend keeps its handwritten `src/lib/api/*` HTTP functions. Stable generated contracts such
+as `CircleSetupResponse` and `PlanPreview` are imported from the generated file rather than
+duplicated manually.
+
+Frontend commands:
+
+```bash
+npm run api:types
+npm run api:types:check
+npm run typecheck
+npm run build
+```
+
+The drift check regenerates into a temporary file and fails when committed types differ. CI never
+silently updates the contract.
+
+## Bootstrap and test data
+
+Normal startup creates required system/reference/RBAC configuration and, when all
+`SUPERADMIN_*` settings are supplied, exactly one idempotent Super Admin. It does not create
+ordinary demo members, circles or sample transactions.
+
+Explicit test users are created through `tests/cli` using normal HTTP registration,
+verification, KYC, bank and circle workflows. They are tagged with `source=test_cli`,
+`is_test_account`/`is_test_data` and a UUID `test_run_id`. The CLI refuses production.
+Cleanup selects only those explicit tags and never deletes an administrator.
+
+```bash
+APP_ENV=test python -m tests.cli.create_test_clients --count 10
+APP_ENV=test python -m tests.cli.create_test_scenario --clients 10 --circles 3 --members-per-circle 5
+APP_ENV=test python -m tests.cli.cleanup_test_data --run-id <uuid>
+```
+
+## Local/container workflow
+
+```bash
+cp .env.example .env
+python -m alembic upgrade head
+python -m app.platform.cli sync-init   # once, only when resilience is enabled
+docker compose up --build
+```
+
+`compose.yaml` runs PostgreSQL, Redis, migrations, API, outbox dispatcher, payment worker,
+notification worker, reconciliation worker and scheduler. Apply migrations before enabling a new
+fallback file.

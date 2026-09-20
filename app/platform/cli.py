@@ -31,6 +31,9 @@ def main():
         interval=worker_interval_seconds()
         try:
             while True:
+                if ctx.router and not ctx.router.primary_available():
+                    if args.once: break
+                    time.sleep(interval);continue
                 gen=ctx.session();db=next(gen)
                 try:
                     count=dispatch_pending(db,publisher.publish)
@@ -53,6 +56,9 @@ def main():
     if args.command=='scheduler':
         interval=worker_interval_seconds()
         while True:
+            if ctx.router and not ctx.router.primary_available():
+                if args.once: break
+                time.sleep(interval);continue
             gen=ctx.session();db=next(gen)
             try:
                 count=enqueue_due_scan(db)+enqueue_reconciliation_scan(db)

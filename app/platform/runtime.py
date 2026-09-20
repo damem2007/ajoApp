@@ -67,6 +67,13 @@ class Context:
             return user
         return check
 
+    def canonical_available(self):
+        return not self.router or self.router.primary_available()
+
+    def require_canonical(self):
+        if not self.canonical_available():
+            fail('PostgreSQL is temporarily unavailable; external provider operations are paused until reconciliation',503)
+
     def ensure_configured(self,kind):
         if self.provider_names[kind]=='unconfigured': fail(kind.capitalize()+' integration adapter is not implemented',503)
 

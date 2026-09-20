@@ -137,6 +137,14 @@ class DatabaseRouter:
             else:
                 db.add(SyncControl(id='snapshot',state=state,detail=detail))
 
+    def primary_available(self):
+        try:
+            with self.primary.connect() as connection:
+                connection.execute(text('SELECT 1'))
+            return True
+        except (OperationalError,DBAPIError):
+            return False
+
     def _tables(self):
         return [t for t in Base.metadata.sorted_tables if t.name not in EXCLUDED]
 
@@ -330,7 +338,7 @@ class DatabaseRouter:
         with self.lock,self.process_lock():
             try:
                 with self.primary.connect() as probe: probe.execute(text('SELECT 1'))
-            except OperationalError:
+            except (OperationalError,DBAPIError):
                 with Session(self.secondary) as local:
                     snapshot=local.get(SyncControl,'snapshot')
                     if not snapshot or snapshot.state!='ready':

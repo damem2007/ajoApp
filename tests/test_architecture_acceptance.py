@@ -34,3 +34,21 @@ def test_ledger_posting_is_balanced_and_idempotent():
 
 def test_reconciliation_events_have_dedicated_queue():
     assert queue_for('reconciliation.scan')=='ajo:reconciliation'
+
+
+def test_degraded_mode_never_executes_external_payment_provider(tmp_path,monkeypatch):
+    from app.platform.runtime import Context
+    from app.platform.security import Vault
+    from app.platform.resilience import DatabaseRouter
+    from app.platform.payment_orchestration import PaymentOrchestrationService
+
+    primary=create_engine('sqlite:///'+str(tmp_path/'primary.db'))
+    secondary=create_engine('sqlite:///'+str(tmp_path/'secondary.db'))
+    Base.metadata.create_all(primary);Base.metadata.create_all(secondary)
+    class Ctx:
+        router=type('Router',(),{'mode':'sqlite'})()
+        payments=SandboxPayments()
+    with pytest.raises(RuntimeError):
+        PaymentOrchestrationService(Ctx()).initiate(
+            key='degraded-payment',amount_minor=100,currency='CAD',
+            kind='contribution',bank_token='sandbox-ok-bank')

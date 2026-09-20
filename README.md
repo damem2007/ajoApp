@@ -26,7 +26,7 @@ database mode.
 ## Async runtime
 
 Redis transports durable outbox event IDs. PostgreSQL/SQLite database records remain authoritative.
-The repository runs the API, outbox dispatcher, payment worker, notification worker, and scheduler
+The repository runs the API, outbox dispatcher, payment worker, notification worker, reconciliation worker, and scheduler
 as separate process roles from the same codebase/image. See `compose.yaml`.
 
 ## Bootstrap
@@ -47,3 +47,25 @@ The separate Next.js repository consumes this contract for TypeScript API type s
 
 See [architecture](docs/architecture.md), [configuration](docs/CONFIGURATION.md), and
 [provider/resilience notes](docs/PROVIDER_RESILIENCE_BACKOFFICE.md).
+
+
+## Degraded recovery
+
+PostgreSQL remains canonical. SQLite is a non-authoritative certified snapshot plus encrypted
+degraded-operation journal. Recovery is SQLite journal -> reconciliation worker -> PostgreSQL;
+conflicts are quarantined and never resolved with last-write-wins.
+
+```bash
+python -m app.platform.cli sync-init
+python -m app.platform.cli sync-status
+python -m app.platform.cli reconciliation-worker
+```
+
+## Explicit test-data harness
+
+```bash
+APP_ENV=test python -m tests.cli.create_test_scenario --clients 10 --circles 3 --members-per-circle 5
+APP_ENV=test python -m tests.cli.cleanup_test_data --run-id <uuid>
+```
+
+Normal bootstrap creates no ordinary demo users/circles.

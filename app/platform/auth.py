@@ -197,6 +197,9 @@ def routes(ctx):
         device=ctx.vault.fingerprint(body.device_fingerprint)
         if db.scalar(select(IdentityCase.id).where(IdentityCase.user_id!=user.id,IdentityCase.device_fingerprint==device)):
             signals.append('Shared device signal; not proof of duplicate identity')
+        # Do not create an external identity-provider side effect from the degraded
+        # SQLite journal. The user can safely retry once PostgreSQL is canonical.
+        ctx.require_canonical()
         item=IdentityCase(user_id=user.id,encrypted_data=ctx.vault.seal(canonical(identity)),
                           id_fingerprint=fingerprint,device_fingerprint=device,signals=signals)
         db.add(item);db.flush()
@@ -217,6 +220,7 @@ def routes(ctx):
     def bank(body:BankInput,db=Depends(dbdep),user=Depends(ctx.actor)):
         eligible(user)
         ctx.ensure_configured('payments')
+        ctx.require_canonical()
         try: linked=ctx.payments.link_bank(bank_token=body.provider_token)
         except ValueError as error: fail(str(error),422)
         b=Bank(user_id=user.id,token_hash=ctx.vault.fingerprint(body.provider_token),encrypted_token=ctx.vault.seal(body.provider_token),masked=linked['masked'],status=linked['status'],mandate=body.mandate_accepted)
